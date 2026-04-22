@@ -1,0 +1,13 @@
+{
+  "type": "service_account",
+  "project_id": "usana-bc-tracker-signup",
+  "private_key_id": "8d8be3089849052c915b5f58a025c9a563233284",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQCpOar388H9bI2r\nq92kxZoQ7Y5/map5dX3TXZyTaTr8JYd0ZJBxSDbNCxInMuJCH2pQ2HMxhaTc2jw3\nL42EuIuZOABwhHmbWhJAeSX6I3jkT5SBz56kvbFK371h/AwrCpy4faJWK//0sMHF\nJGSpMWIZLSQ0JDGCGJbTrEaPzCPxPNG9sYM/1U46mn+XaR4XIiZZWES526YlnjzQ\nKbZTN29bFXBtZB4zO6s+jpkhx2mEtwvYyfFNWuz0CwuVuDrX9mdkBDIkvlz7KdA9\nUdbgZpg8M/Ui3pC7AUG/CUnfZ0fUVgE1pd/wag8eZxaZueMC8f9Cc7+PNxvg6RP0\nY1PrwKcpAgMBAAECggEAALzxe8hdNxDoo0WKH28Eh4C0Z5EQ1xvF6IyWzhEeQpLv\n/s12JdBV+4SfV9AXKt5T3+C5y+RUfj7DbCLcdVDlZviBY/w9Qt9ch1nKlRyKKUYW\n6eQGbJsuhproNWEHNTmEH80zI+NoPTXMz+J4lUD+Yl653YevjEI1h4ck/aPlyju4\nW0QmkkPEUhnf48dX8s15c3DXGshyVs4XpP8eWzlFDvNv0dkzFGs20Ix0yAOa9Bdj\n8Ev/qgP1lk2Aeio7M/41W9fSrDXekPLpJi6R+H9DDAPnEDu3a4jLMM3fBlawrbf3\ny0/fHWy3HCXMHH3VOcPKiCPu5wdQbOJPgHgQyEMbyQKBgQDZDLZVeZK0DAPc8rpi\nycj6wg1yJUV6hoE89hfq8rjz3/SgWSBvV9Om7G86X4IS5u6fGQsz4mQ19Wd/munq\nm+6icRKMX6iWaHichsBiwzsy44MFeA+tyRlFRjQlVTrzCONk4FjIDVmjRejnZqfD\nzx3pi3+c6WKwjNJYuZwYQr0UzQKBgQDHl+WuEvsslgH4MArHHOd/Qj7XGPG2qoTv\n8w+JsIor3v6vlMUEIlhu0HY/vLM7H6OtXW53i9eTFYwCgDeEufH1kLXGlGKNRDI7\n1w/mGMgXU/WuA/iLi8M2mZ3qlXl9LfwT8nwHplBHP2x83D61blPk0KjdRVsaZTFn\nYyud4rr7zQKBgQCkQ+GumL61cq5txmnXH/3yAXDppVmK3EbtGxaI4r+lGiZqQGmy\nupZdK20WkXfA1HNdhzeaQckzqRF2WoiT3QVifQ7bm/3cLx6w3660UCr6XYMoXXAI\nRzzP18zZQELH8j8edkfax3fCgMM+dcub/qEVwlSHLX5aPYloSrjfB4tQNQKBgQCC\nc4MInRtRbtHmtu+0Z+3ePRv5VjJVY2nzsndLVPlZ5yuq8p86LoCCHPnMerbiQ7Gk\n09YpiFrjpUeXMtoWg7ni+Cv2mHE5R4NVnSClETlmFdgTXkEKY9S5UPnnor5+1JlX\nKDtsfIUnrApqKUFLL8rhWIel53i97bm2ixis3s27WQKBgFVj4kRLGq5N3TiNm1Fk\nOcs7F2WPSDrAVWVdbPRx2/LRKtS0Cbi0eqXLIO/kNQfV/DWWSve5hRBrBfkKUQMp\n1EGu4lv2MAFkdnUKc9Gt2oJFD4bZXNANUgPaWzm2zhWOmQcG//W4hjILKCAYyngb\nff+pAPt8A9Rxxi/4AWgNwDS2\n-----END PRIVATE KEY-----\n",
+  "client_email": "celaviveleads@usana-bc-tracker-signup.iam.gserviceaccount.com",
+  "client_id": "103772005536193918243",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/celaviveleads%40usana-bc-tracker-signup.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}
