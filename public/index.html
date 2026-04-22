@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Celavive Spa Party Registration</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    >
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <div class="page">
+      <div class="shell">
+        <section class="hero">
+          <div class="eyebrow">USANA Skincare</div>
+          <h1>What Is USANA Celavive?</h1>
+          <p class="lede">
+            USANA Celavive is USANA's skincare line for cleansing, hydration, protection, and
+            healthy-looking skin.
+          </p>
+
+          <div id="configBadge" class="config-badge pending">Checking Google Sheets connection...</div>
+
+          <ul class="feature-list">
+            <li>
+              <div class="feature-icon">01</div>
+              <div>
+                <strong>Why Celavive?</strong>
+                <span>A complete skincare routine in one brand.</span>
+              </div>
+            </li>
+            <li>
+              <div class="feature-icon">02</div>
+              <div>
+                <strong>Science-led skincare</strong>
+                <span>Built with targeted formulas and ingredient-focused care.</span>
+              </div>
+            </li>
+            <li>
+              <div class="feature-icon">03</div>
+              <div>
+                <strong>Why people notice it</strong>
+                <span>Known for product upgrades and skincare recognition.</span>
+              </div>
+            </li>
+          </ul>
+        </section>
+
+        <section class="form-panel">
+          <div class="form-card">
+            <div class="panel-head">
+              <h2>Celavive Spa Party Registration</h2>
+              <p>Please fill in the guest details below so we can register each attendee properly.</p>
+            </div>
+
+            <form id="registrationForm">
+              <div class="grid">
+                <div class="field full">
+                  <label for="fullName">Full Name <span class="required">*</span></label>
+                  <input id="fullName" name="fullName" type="text" autocomplete="name" placeholder="e.g. Maria Cristina Santos" required>
+                </div>
+
+                <div class="field">
+                  <label for="birthday">Birthday <span class="required">*</span></label>
+                  <input id="birthday" name="birthday" type="date" required>
+                </div>
+
+                <div class="field">
+                  <label for="mobileNumber">Mobile # <span class="required">*</span></label>
+                  <input id="mobileNumber" name="mobileNumber" type="tel" inputmode="numeric" placeholder="09XXXXXXXXX or +639XXXXXXXXX" required>
+                </div>
+
+                <div class="field">
+                  <label for="emailAddress">Email Address <span class="required">*</span></label>
+                  <input id="emailAddress" name="emailAddress" type="email" autocomplete="email" placeholder="name@email.com" required>
+                </div>
+
+                <div class="field full">
+                  <label for="address">Address <span class="required">*</span></label>
+                  <textarea id="address" name="address" placeholder="Complete home address" required></textarea>
+                  <div class="helper">Tip: include barangay, city, and province for cleaner records.</div>
+                </div>
+
+                <div class="field">
+                  <label for="profession">Profession <span class="required">*</span></label>
+                  <select id="profession" name="profession" required>
+                    <option value="">Select profession</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="actions">
+                <button id="submitButton" type="submit">Save Registration</button>
+                <div id="status" class="status" aria-live="polite"></div>
+              </div>
+            </form>
+
+            <div class="footer-note">
+              After you configure your Google Sheet and service account, all saved registrations will go straight into your sheet.
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <script src="/app.js?v=20260422-2"></script>
+  </body>
+</html>

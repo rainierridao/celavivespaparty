@@ -1,0 +1,9 @@
+{
+  "name": "celavive-spa-party-registration",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Local web app for Celavive Spa Party attendee registration with Google Sheets sync.",
+  "scripts": {
+    "start": "node server.js"
+  }
+}
