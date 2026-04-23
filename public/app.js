@@ -29,7 +29,9 @@ const state = {
   session: null,
   authSlideshowTimer: null,
   publicSlideshowTimer: null,
-  cachedEventCount: null
+  cachedEventCount: null,
+  confirmDialog: null,
+  headerTitleResizeHandler: null
 };
 
 document.addEventListener('click', handleGlobalClick);
@@ -75,6 +77,11 @@ async function renderRoute() {
   if (state.publicSlideshowTimer) {
     window.clearInterval(state.publicSlideshowTimer);
     state.publicSlideshowTimer = null;
+  }
+
+  if (state.headerTitleResizeHandler) {
+    window.removeEventListener('resize', state.headerTitleResizeHandler);
+    state.headerTitleResizeHandler = null;
   }
 
   if (pathname === '/') {
@@ -131,12 +138,39 @@ async function renderRoute() {
 
     try {
       const result = await fetchJson('/events');
-      state.cachedEventCount = result.events.length;
+      state.cachedEventCount = getActiveWorkspaceEvents(result.events).length;
       renderPage(renderDashboardPage(result.user, result.events));
       attachAdminShellHandlers();
       attachDashboardHandlers(result.events);
     } catch (error) {
       renderPage(renderErrorPage('Unable to load your dashboard.', error.message));
+    }
+
+    return;
+  }
+
+  if (pathname === '/events/archive') {
+    if (!(await guardAuthenticated())) {
+      return;
+    }
+
+    renderLoading('Loading archived events...', {
+      admin: {
+        activeView: 'archive',
+        title: 'Loading archive',
+        subtitle: 'Pulling your completed and archived event history.',
+        badge: 'Archive'
+      }
+    });
+    attachAdminShellHandlers();
+
+    try {
+      const result = await fetchJson('/events');
+      state.cachedEventCount = getActiveWorkspaceEvents(result.events).length;
+      renderPage(renderArchivePage(result.events));
+      attachAdminShellHandlers();
+    } catch (error) {
+      renderPage(renderErrorPage('Unable to load your archive.', error.message));
     }
 
     return;
@@ -308,6 +342,30 @@ async function guardAuthenticated() {
 }
 
 function handleGlobalClick(event) {
+  const confirmAccept = event.target.closest('[data-confirm-accept]');
+
+  if (confirmAccept) {
+    event.preventDefault();
+    resolveConfirmModal(true);
+    return;
+  }
+
+  const confirmCancel = event.target.closest('[data-confirm-cancel]');
+
+  if (confirmCancel) {
+    event.preventDefault();
+    resolveConfirmModal(false);
+    return;
+  }
+
+  const confirmBackdrop = event.target.closest('[data-confirm-backdrop]');
+
+  if (confirmBackdrop && !event.target.closest('[data-confirm-surface]')) {
+    event.preventDefault();
+    resolveConfirmModal(false);
+    return;
+  }
+
   const link = event.target.closest('[data-link]');
 
   if (link) {
@@ -369,8 +427,92 @@ function handleGlobalClick(event) {
 
 function handleGlobalKeydown(event) {
   if (event.key === 'Escape') {
+    if (resolveConfirmModal(false)) {
+      return;
+    }
+
     closeProfilePopover();
   }
+}
+
+function showConfirmModal({
+  title,
+  message,
+  confirmLabel = 'Confirm',
+  cancelLabel = 'Cancel',
+  tone = 'default'
+}) {
+  const modal = ensureConfirmModal();
+
+  modal.dataset.tone = tone;
+  modal.querySelector('[data-confirm-title]').textContent = title;
+  modal.querySelector('[data-confirm-message]').textContent = message;
+  modal.querySelector('[data-confirm-accept]').textContent = confirmLabel;
+  modal.querySelector('[data-confirm-cancel]').textContent = cancelLabel;
+  modal.hidden = false;
+
+  window.requestAnimationFrame(() => {
+    modal.classList.add('is-open');
+    const cancelButton = modal.querySelector('[data-confirm-cancel]');
+
+    if (cancelButton) {
+      cancelButton.focus();
+    }
+  });
+
+  return new Promise((resolve) => {
+    state.confirmDialog = {
+      resolve
+    };
+  });
+}
+
+function resolveConfirmModal(result) {
+  const modal = document.getElementById('confirmModal');
+
+  if (!state.confirmDialog || !modal) {
+    return false;
+  }
+
+  const resolver = state.confirmDialog.resolve;
+  state.confirmDialog = null;
+  modal.classList.remove('is-open');
+
+  window.setTimeout(() => {
+    if (modal && !state.confirmDialog) {
+      modal.hidden = true;
+    }
+  }, 180);
+
+  resolver(Boolean(result));
+  return true;
+}
+
+function ensureConfirmModal() {
+  let modal = document.getElementById('confirmModal');
+
+  if (modal) {
+    return modal;
+  }
+
+  modal = document.createElement('div');
+  modal.id = 'confirmModal';
+  modal.className = 'confirm-modal';
+  modal.hidden = true;
+  modal.setAttribute('data-confirm-backdrop', '');
+  modal.innerHTML = `
+    <div class="confirm-modal-surface" data-confirm-surface role="dialog" aria-modal="true" aria-labelledby="confirmModalTitle">
+      <div class="confirm-modal-kicker">Confirm action</div>
+      <h2 id="confirmModalTitle" data-confirm-title></h2>
+      <p data-confirm-message></p>
+      <div class="confirm-modal-actions">
+        <button type="button" class="button-link button-link-secondary confirm-modal-button" data-confirm-cancel></button>
+        <button type="button" class="button-link confirm-modal-button" data-confirm-accept></button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  return modal;
 }
 
 function attachLoginHandlers() {
@@ -512,11 +654,12 @@ function attachResetPasswordHandlers(token) {
 }
 
 function attachDashboardHandlers(events) {
+  const activeEvents = getActiveWorkspaceEvents(events);
   const createButton = document.getElementById('createEventButton');
   const manageButton = document.getElementById('manageSelectedEventButton');
   const eventSelect = document.getElementById('dashboardEventSelect');
   const quickPanel = document.getElementById('selectedEventQuickPanel');
-  const eventsById = new Map(events.map((eventData) => [eventData.eventId, eventData]));
+  const eventsById = new Map(activeEvents.map((eventData) => [eventData.eventId, eventData]));
 
   if (createButton) {
     createButton.addEventListener('click', () => {
@@ -625,12 +768,22 @@ function attachCreateEventHandlers() {
 }
 
 function attachEventDetailHandlers(eventData) {
+  syncDynamicHeaderTitle();
   const qrImage = document.getElementById('qrImage');
+  const qrOpenLink = document.getElementById('qrOpenLink');
+  const rsvpUrl = `${window.location.origin}${eventData.rsvpPath}`;
 
   if (qrImage) {
-    const rsvpUrl = `${window.location.origin}${eventData.rsvpPath}`;
     qrImage.src = buildQrUrl(rsvpUrl);
-    qrImage.alt = `QR code for ${eventData.eventLabel} RSVP`;
+    qrImage.alt = `Branded QR code for ${eventData.eventLabel} RSVP`;
+  }
+
+  if (qrOpenLink) {
+    qrOpenLink.href = buildQrUrl(rsvpUrl);
+    qrOpenLink.addEventListener('click', (event) => {
+      event.preventDefault();
+      openBrandedQrTab(eventData, rsvpUrl);
+    });
   }
 
   const copyButtons = Array.from(document.querySelectorAll('[data-copy-url]'));
@@ -666,6 +819,109 @@ function attachEventDetailHandlers(eventData) {
       }
     });
   });
+
+  const scheduleForm = document.getElementById('eventScheduleForm');
+  const archiveButton = document.getElementById('toggleArchiveEventButton');
+  const deleteButton = document.getElementById('deleteEventButton');
+  const managementStatus = document.getElementById('eventManagementStatus');
+
+  if (scheduleForm) {
+    scheduleForm.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const submitButton = scheduleForm.querySelector('button[type="submit"]');
+      const dateTime = scheduleForm.dateTime.value;
+
+      setStatus(managementStatus, '', '');
+
+      try {
+        setButtonLoading(submitButton, true, 'Saving schedule...');
+        const result = await fetchJson(`/events/${eventData.eventId}`, {
+          method: 'PATCH',
+          body: {
+            action: 'reschedule',
+            dateTime
+          }
+        });
+
+        setStatus(managementStatus, result.message, 'is-success');
+        navigate(`/events/${encodeURIComponent(result.event.eventId)}`, true);
+      } catch (error) {
+        setStatus(managementStatus, error.message, 'is-error');
+      } finally {
+        setButtonLoading(submitButton, false, 'Update Date');
+      }
+    });
+  }
+
+  if (archiveButton) {
+    archiveButton.addEventListener('click', async () => {
+      const action = archiveButton.getAttribute('data-event-action') || 'archive';
+      const promptMessage =
+        action === 'archive'
+          ? 'Archive this event and move it out of the active workspace?'
+          : 'Move this event back to the active workspace?';
+
+      const confirmed = await showConfirmModal({
+        title: action === 'archive' ? 'Archive this event?' : 'Move event to active?',
+        message: promptMessage,
+        confirmLabel: action === 'archive' ? 'Archive' : 'Move to Active'
+      });
+
+      if (!confirmed) {
+        return;
+      }
+
+      setStatus(managementStatus, '', '');
+
+      try {
+        setButtonLoading(archiveButton, true, action === 'archive' ? 'Archiving...' : 'Restoring...');
+        const result = await fetchJson(`/events/${eventData.eventId}`, {
+          method: 'PATCH',
+          body: {
+            action
+          }
+        });
+
+        setStatus(managementStatus, result.message, 'is-success');
+        navigate(`/events/${encodeURIComponent(result.event.eventId)}`, true);
+      } catch (error) {
+        setStatus(managementStatus, error.message, 'is-error');
+      } finally {
+        setButtonLoading(archiveButton, false, action === 'archive' ? 'Archive Event' : 'Move To Active');
+      }
+    });
+  }
+
+  if (deleteButton) {
+    deleteButton.addEventListener('click', async () => {
+      const confirmed = await showConfirmModal({
+        title: 'Delete this event?',
+        message: 'This removes the event from the workspace. Existing RSVP and attendance sheets will remain in Google Sheets.',
+        confirmLabel: 'Delete Event',
+        tone: 'danger'
+      });
+
+      if (!confirmed) {
+        return;
+      }
+
+      setStatus(managementStatus, '', '');
+
+      try {
+        setButtonLoading(deleteButton, true, 'Deleting...');
+        const result = await fetchJson(`/events/${eventData.eventId}`, {
+          method: 'DELETE'
+        });
+
+        setStatus(managementStatus, result.message, 'is-success');
+        navigate('/dashboard', true);
+      } catch (error) {
+        setStatus(managementStatus, error.message, 'is-error');
+      } finally {
+        setButtonLoading(deleteButton, false, 'Delete Event');
+      }
+    });
+  }
 }
 
 function attachRsvpHandlers(eventData) {
@@ -1128,23 +1384,24 @@ function showNativePicker(button) {
 }
 
 function renderDashboardPage(user, events) {
-  const summary = summarizeEvents(events);
-  const selectedEvent = getPrimaryEvent(events);
+  const activeEvents = getActiveWorkspaceEvents(events);
+  const summary = summarizeEvents(activeEvents);
+  const selectedEvent = getPrimaryEvent(activeEvents);
 
   return renderAdminFrame({
     activeView: 'dashboard',
     user,
-    eventCount: events.length,
+    eventCount: activeEvents.length,
     title: 'Events workspace',
     subtitle: 'Track RSVP collection, attendance capture, QR sharing, and response review from one polished workspace.',
     badge: 'Operations console',
     headerControls: `
       <div class="dashboard-control-group">
         <label class="dashboard-select-wrap" for="dashboardEventSelect">
-          <select id="dashboardEventSelect" class="dashboard-event-select" ${events.length ? '' : 'disabled'}>
+          <select id="dashboardEventSelect" class="dashboard-event-select" ${activeEvents.length ? '' : 'disabled'}>
             ${
-              events.length
-                ? events
+              activeEvents.length
+                ? activeEvents
                     .map(
                       (eventData) => `
                         <option value="${escapeAttribute(eventData.eventId)}"${selectedEvent && selectedEvent.eventId === eventData.eventId ? ' selected' : ''}>
@@ -1153,11 +1410,11 @@ function renderDashboardPage(user, events) {
                       `
                     )
                     .join('')
-                : '<option value="">No events available</option>'
+                : '<option value="">No active events available</option>'
             }
           </select>
         </label>
-        <button id="manageSelectedEventButton" type="button" class="button-link button-link-secondary" ${events.length ? '' : 'disabled'}>
+        <button id="manageSelectedEventButton" type="button" class="button-link button-link-secondary" ${activeEvents.length ? '' : 'disabled'}>
           Manage Event
         </button>
         <button id="createEventButton" type="button" class="topbar-primary">
@@ -1194,6 +1451,46 @@ function renderDashboardPage(user, events) {
             </div>
           </section>
         </aside>
+      </section>
+    `
+  });
+}
+
+function renderArchivePage(events) {
+  const archivedEvents = getArchiveEvents(events);
+
+  return renderAdminFrame({
+    activeView: 'archive',
+    user: state.session,
+    eventCount: getActiveWorkspaceEvents(events).length,
+    title: 'Archive',
+    subtitle: 'Review completed events, manually archived schedules, and older workspaces that are no longer active.',
+    badge: 'Event history',
+    headerControls: renderHeaderBackLink('/dashboard', 'Back to dashboard'),
+    content: `
+      <section class="workspace-panel workspace-panel-large archive-panel">
+        <div class="workspace-heading archive-heading">
+          <div>
+            <span class="section-kicker">Completed events</span>
+            <h2>Past and archived events</h2>
+            <p>These events are out of the live workspace. Open any event to review its details and response history.</p>
+          </div>
+          <div class="response-meta-pill">${archivedEvents.length} event${archivedEvents.length === 1 ? '' : 's'}</div>
+        </div>
+        ${
+          archivedEvents.length
+            ? `
+              <div class="archive-grid">
+                ${archivedEvents.map((eventData) => renderArchiveEventCard(eventData)).join('')}
+              </div>
+            `
+            : `
+              <div class="empty-state empty-state-modern archive-empty-state">
+                <strong>No archived events yet.</strong>
+                <span>Past events and manually archived schedules will appear here automatically.</span>
+              </div>
+            `
+        }
       </section>
     `
   });
@@ -1276,14 +1573,18 @@ function renderEventDetailPage(eventData, previews = {}) {
   const attendancePreviewRows = buildResponsePreviewRows(previews.attendanceResponses || [], 'attendance');
 
   return renderAdminFrame({
-    activeView: 'dashboard',
+    activeView: eventData.isArchived ? 'archive' : 'dashboard',
     user: state.session,
     title: eventData.eventLabel,
-    subtitle: 'Share RSVP, capture attendance, and review responses from one event workspace.',
+    titleClass: eventData.isArchived ? '' : 'admin-title-dynamic',
+    subtitle: eventData.isArchived
+      ? 'Review this completed event and its published response history.'
+      : 'Share RSVP, capture attendance, and review responses from one event workspace.',
     badge: eventData.eventType,
-    headerControls: renderHeaderBackLink('/dashboard', 'Back to dashboard'),
+    headerDetails: eventData.isArchived ? '' : renderEventHeaderControls(eventData),
+    headerControls: renderHeaderBackLink(eventData.isArchived ? '/events/archive' : '/dashboard', eventData.isArchived ? 'Back to archive' : 'Back to dashboard'),
     content: `
-      <section class="editor-grid event-detail-layout">
+      <section class="editor-grid event-detail-layout${eventData.isArchived ? ' is-archived' : ' is-active'}">
         <div class="detail-main-stack">
           <section class="workspace-panel workspace-panel-large detail-hero">
             <div class="detail-hero-head">
@@ -1336,14 +1637,17 @@ function renderEventDetailPage(eventData, previews = {}) {
         </div>
 
         <aside class="detail-side-stack">
-          <section class="workspace-panel qr-card">
+          <section class="workspace-panel qr-card${eventData.isArchived ? '' : ' qr-card-active'}">
             <span class="section-kicker">QR access</span>
             <h3>RSVP QR code</h3>
             <p>Share this QR with potential attendees so they can confirm attendance quickly.</p>
             <div class="qr-panel">
-              <img id="qrImage" class="qr-image" alt="RSVP QR code">
+              <div class="qr-image-stack">
+                <img id="qrImage" class="qr-image" alt="RSVP QR code">
+                <img class="qr-brand-mark" src="/assets/logo/Genesys_Logo2.svg" alt="" aria-hidden="true">
+              </div>
             </div>
-            <a class="button-link button-link-secondary" target="_blank" rel="noreferrer" href="${escapeAttribute(buildQrUrl(rsvpUrl))}">Open QR in new tab</a>
+            <a id="qrOpenLink" class="button-link button-link-secondary" target="_blank" rel="noreferrer" href="${escapeAttribute(buildQrUrl(rsvpUrl))}">Open QR in new tab</a>
           </section>
         </aside>
       </section>
@@ -1355,7 +1659,7 @@ function renderResponsesPage(title, eventData, responses, mode) {
   const columns = getVisibleResponseColumns(mode, responses);
 
   return renderAdminFrame({
-    activeView: 'dashboard',
+    activeView: eventData.isArchived ? 'archive' : 'dashboard',
     user: state.session,
     title,
     subtitle: `${eventData.eventLabel} · ${responses.length} response${responses.length === 1 ? '' : 's'}`,
@@ -1388,14 +1692,95 @@ function renderResponsesPage(title, eventData, responses, mode) {
 
 function renderHeaderBackLink(href, label) {
   return `
-    <a href="${escapeAttribute(href)}" data-link class="button-link button-link-secondary header-back-link">
+    <a
+      href="${escapeAttribute(href)}"
+      data-link
+      class="button-link button-link-secondary header-back-link"
+      aria-label="${escapeAttribute(label)}"
+      title="${escapeAttribute(label)}"
+    >
       <span class="header-back-icon" aria-hidden="true">
         <svg viewBox="0 0 24 24" fill="none">
           <path d="M15 18L9 12L15 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
       </span>
-      <span>${escapeHtml(label)}</span>
     </a>
+  `;
+}
+
+function renderEventActionIcon(action) {
+  if (action === 'archive') {
+    return `
+      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M4 7.5C4 6.7 4.7 6 5.5 6H18.5C19.3 6 20 6.7 20 7.5V9.5C20 10.3 19.3 11 18.5 11H5.5C4.7 11 4 10.3 4 9.5V7.5Z" stroke="currentColor" stroke-width="1.8"/>
+        <path d="M6.5 11V17.5C6.5 18.3 7.2 19 8 19H16C16.8 19 17.5 18.3 17.5 17.5V11" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+        <path d="M9 14H15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+      </svg>
+    `;
+  }
+
+  if (action === 'delete') {
+    return `
+      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M5 7H19" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+        <path d="M9 7V5.8C9 5.36 9.36 5 9.8 5H14.2C14.64 5 15 5.36 15 5.8V7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+        <path d="M7 7L7.8 18.2C7.86 19.02 8.54 19.65 9.36 19.65H14.64C15.46 19.65 16.14 19.02 16.2 18.2L17 7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+        <path d="M10 10.5V16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+        <path d="M14 10.5V16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+      </svg>
+    `;
+  }
+
+  return `
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M7 3V6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+      <path d="M17 3V6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+      <path d="M4 9H20" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+      <rect x="4" y="5" width="16" height="15" rx="3" stroke="currentColor" stroke-width="1.8"/>
+      <path d="M8 13H12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+      <path d="M8 16H15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+    </svg>
+  `;
+}
+
+function renderEventHeaderControls(eventData) {
+  return `
+    <form id="eventScheduleForm" class="event-header-schedule-form">
+      <div class="event-header-schedule-field">
+        <label for="manageDateTime">Reschedule event</label>
+        <div class="date-input-shell">
+          <input id="manageDateTime" name="dateTime" type="datetime-local" value="${escapeAttribute(formatDateTimeLocalValue(eventData.dateTime))}" required>
+          <button type="button" class="date-input-shell-button" data-show-picker data-target="manageDateTime" aria-label="Open schedule picker">
+            <svg viewBox="0 0 24 24" fill="none">
+              <path d="M7 3V6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+              <path d="M17 3V6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+              <path d="M4 9H20" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+              <rect x="4" y="5" width="16" height="15" rx="3" stroke="currentColor" stroke-width="1.8"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+      <div class="event-header-actions-row">
+        <button type="submit" class="event-header-action-button">
+          <span class="event-header-action-icon">${renderEventActionIcon('update')}</span>
+          <span>Update</span>
+        </button>
+        <button
+          id="toggleArchiveEventButton"
+          type="button"
+          class="button-link button-link-secondary event-header-action-button"
+          data-event-action="archive"
+        >
+          <span class="event-header-action-icon">${renderEventActionIcon('archive')}</span>
+          <span>Archive</span>
+        </button>
+        <button id="deleteEventButton" type="button" class="button-link button-link-danger event-header-action-button">
+          <span class="event-header-action-icon">${renderEventActionIcon('delete')}</span>
+          <span>Delete</span>
+        </button>
+      </div>
+      <div id="eventManagementStatus" class="status event-management-status event-header-status" aria-live="polite"></div>
+    </form>
   `;
 }
 
@@ -1626,17 +2011,31 @@ function renderAttendanceFields() {
   `;
 }
 
-function renderAdminFrame({ activeView, user, eventCount = null, title, subtitle, badge, headerControls = '', content }) {
+function renderAdminFrame({
+  activeView,
+  user,
+  eventCount = null,
+  title,
+  titleClass = '',
+  subtitle,
+  badge,
+  headerDetails = '',
+  headerControls = '',
+  content
+}) {
   return `
     <div class="admin-page">
       <div class="admin-app-shell">
         ${renderAdminSidebar(activeView, user, eventCount)}
         <div class="admin-main">
           <header class="admin-header-modern">
-            <div class="admin-header-copy">
-              <span class="section-kicker">${escapeHtml(badge || 'Event admin')}</span>
-              <h1>${escapeHtml(title)}</h1>
-              <p>${escapeHtml(subtitle || '')}</p>
+            <div class="admin-header-main${headerDetails ? ' has-details' : ''}">
+              <div class="admin-header-copy">
+                <span class="section-kicker">${escapeHtml(badge || 'Event admin')}</span>
+                <h1 class="${escapeAttribute(titleClass)}"${titleClass ? ' data-dynamic-title' : ''}>${escapeHtml(title)}</h1>
+                <p>${escapeHtml(subtitle || '')}</p>
+                ${headerDetails}
+              </div>
             </div>
             <div class="admin-header-actions">
               ${headerControls}
@@ -1729,6 +2128,16 @@ function renderAdminSidebar(activeView, user, eventCount) {
             </svg>
           </span>
           <span class="sidebar-link-label">New Event</span>
+        </a>
+        <a href="/events/archive" data-link class="sidebar-link${activeView === 'archive' ? ' is-active' : ''}">
+          <span class="sidebar-link-icon">
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M4 7.5C4 6.7 4.7 6 5.5 6H18.5C19.3 6 20 6.7 20 7.5V9.5C20 10.3 19.3 11 18.5 11H5.5C4.7 11 4 10.3 4 9.5V7.5Z" stroke="currentColor" stroke-width="1.8"/>
+              <path d="M6.5 11V17.5C6.5 18.3 7.2 19 8 19H16C16.8 19 17.5 18.3 17.5 17.5V11" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+              <path d="M9 14H15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+            </svg>
+          </span>
+          <span class="sidebar-link-label">Archive</span>
         </a>
       </nav>
       <div class="sidebar-footer">
@@ -1911,6 +2320,16 @@ function getPrimaryEvent(events) {
   return sortedByDate.find((eventData) => new Date(eventData.dateTime).getTime() >= now) || sortedByDate[0] || events[0] || null;
 }
 
+function getActiveWorkspaceEvents(events) {
+  return events.filter((eventData) => !eventData.isArchived && !eventData.isDeleted);
+}
+
+function getArchiveEvents(events) {
+  return events
+    .filter((eventData) => eventData.isArchived && !eventData.isDeleted)
+    .sort((left, right) => new Date(right.dateTime).getTime() - new Date(left.dateTime).getTime());
+}
+
 function renderSelectedEventQuickPanel(eventData) {
   if (!eventData) {
     return `
@@ -1940,6 +2359,27 @@ function renderSelectedEventQuickPanel(eventData) {
         <a href="/events/${encodeURIComponent(eventData.eventId)}/attendance-responses" data-link class="button-link button-link-secondary">View Attendance Responses</a>
       </div>
     </div>
+  `;
+}
+
+function renderArchiveEventCard(eventData) {
+  return `
+    <article class="archive-card">
+      <div class="archive-card-head">
+        <div>
+          <span class="section-kicker">Archived event</span>
+          <h3>${escapeHtml(eventData.eventLabel)}</h3>
+        </div>
+        <span class="event-lifecycle-pill is-archived">${escapeHtml(getEventLifecycleLabel(eventData))}</span>
+      </div>
+      <div class="archive-card-facts">
+        <span>${escapeHtml(eventData.displayDateTime)}</span>
+        <span>${escapeHtml(eventData.location)}</span>
+      </div>
+      <div class="archive-card-actions">
+        <a href="/events/${encodeURIComponent(eventData.eventId)}" data-link class="button-link">View Event</a>
+      </div>
+    </article>
   `;
 }
 
@@ -1984,6 +2424,30 @@ function formatMetricDateTime(dateTime) {
     hour: 'numeric',
     minute: '2-digit'
   });
+}
+
+function formatDateTimeLocalValue(dateTime) {
+  const parsedDate = new Date(dateTime);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return String(dateTime || '');
+  }
+
+  const offsetMinutes = parsedDate.getTimezoneOffset();
+  const localDate = new Date(parsedDate.getTime() - offsetMinutes * 60 * 1000);
+  return localDate.toISOString().slice(0, 16);
+}
+
+function getEventLifecycleLabel(eventData) {
+  if (eventData.isPast) {
+    return 'Past Event';
+  }
+
+  if (eventData.isManuallyArchived) {
+    return 'Archived';
+  }
+
+  return 'Active Event';
 }
 
 function renderErrorPage(title, message) {
@@ -2278,11 +2742,202 @@ function setStatus(element, message, className) {
 
 function setButtonLoading(button, isLoading, text) {
   button.disabled = isLoading;
+
+  if (isLoading) {
+    if (!button.dataset.loadingRestoreHtml) {
+      button.dataset.loadingRestoreHtml = button.innerHTML;
+    }
+
+    button.textContent = text;
+    return;
+  }
+
+  if (button.dataset.loadingRestoreHtml) {
+    button.innerHTML = button.dataset.loadingRestoreHtml;
+    delete button.dataset.loadingRestoreHtml;
+    return;
+  }
+
   button.textContent = text;
 }
 
 function buildQrUrl(url) {
-  return `https://quickchart.io/qr?size=280&text=${encodeURIComponent(url)}`;
+  const params = new URLSearchParams({
+    text: url,
+    size: '320',
+    margin: '1',
+    dark: '121826',
+    light: 'ffffff',
+    ecLevel: 'H'
+  });
+
+  return `https://quickchart.io/qr?${params.toString()}`;
+}
+
+function buildBrandedQrDocument(eventLabel, qrUrl, targetUrl) {
+  const pageTitle = `${eventLabel} RSVP QR`;
+  const logoUrl = `${window.location.origin}/assets/logo/Genesys_Logo2.svg`;
+
+  return `<!doctype html>
+  <html lang="en">
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+      <title>${escapeHtml(pageTitle)}</title>
+      <style>
+        :root {
+          color-scheme: light;
+        }
+
+        * {
+          box-sizing: border-box;
+        }
+
+        body {
+          margin: 0;
+          min-height: 100vh;
+          display: grid;
+          place-items: center;
+          padding: 28px;
+          font-family: "Plus Jakarta Sans", sans-serif;
+          background:
+            radial-gradient(circle at top left, rgba(92, 102, 255, 0.16), transparent 28%),
+            radial-gradient(circle at bottom right, rgba(225, 248, 111, 0.16), transparent 24%),
+            linear-gradient(180deg, #f4f7fd 0%, #edf2fb 100%);
+          color: #121826;
+        }
+
+        .qr-sheet {
+          width: min(460px, 100%);
+          display: grid;
+          gap: 18px;
+          padding: 28px;
+          border-radius: 32px;
+          background: rgba(255, 255, 255, 0.96);
+          border: 1px solid rgba(206, 214, 234, 0.92);
+          box-shadow: 0 24px 60px rgba(50, 73, 125, 0.16);
+          text-align: center;
+        }
+
+        .qr-sheet span {
+          font-size: 0.76rem;
+          font-weight: 800;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          color: #5160e8;
+        }
+
+        .qr-sheet h1 {
+          margin: 0;
+          font-size: clamp(1.5rem, 4vw, 2rem);
+          line-height: 1.08;
+        }
+
+        .qr-stage {
+          position: relative;
+          width: min(320px, 100%);
+          aspect-ratio: 1;
+          margin: 0 auto;
+          padding: 20px;
+          border-radius: 34px;
+          background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+          box-shadow: inset 0 0 0 1px rgba(214, 220, 234, 0.92);
+        }
+
+        .qr-stage img:first-child {
+          display: block;
+          width: 100%;
+          height: 100%;
+          border-radius: 26px;
+          background: #ffffff;
+        }
+
+        .qr-stage img:last-child {
+          position: absolute;
+          inset: 50%;
+          width: 24%;
+          aspect-ratio: 1;
+          transform: translate(-50%, -50%);
+          padding: 10px;
+          border-radius: 24px;
+          background: #ffffff;
+          box-shadow: 0 14px 28px rgba(43, 58, 105, 0.16);
+        }
+
+        .qr-url {
+          margin: 0;
+          font-size: 0.84rem;
+          line-height: 1.55;
+          color: #6f7992;
+          word-break: break-word;
+        }
+      </style>
+    </head>
+    <body>
+      <main class="qr-sheet">
+        <span>QR Access</span>
+        <h1>${escapeHtml(pageTitle)}</h1>
+        <div class="qr-stage">
+          <img src="${escapeAttribute(qrUrl)}" alt="${escapeAttribute(pageTitle)}">
+          <img src="${escapeAttribute(logoUrl)}" alt="">
+        </div>
+        <p class="qr-url">${escapeHtml(targetUrl)}</p>
+      </main>
+    </body>
+  </html>`;
+}
+
+function openBrandedQrTab(eventData, rsvpUrl) {
+  const qrWindow = window.open('about:blank', '_blank');
+
+  if (!qrWindow) {
+    window.open(buildQrUrl(rsvpUrl), '_blank');
+    return;
+  }
+
+  qrWindow.document.open();
+  qrWindow.document.write(buildBrandedQrDocument(eventData.eventLabel, buildQrUrl(rsvpUrl), rsvpUrl));
+  qrWindow.document.close();
+}
+
+function syncDynamicHeaderTitle() {
+  const title = document.querySelector('[data-dynamic-title]');
+
+  if (!title) {
+    return;
+  }
+
+  const fitTitle = () => {
+    const container = title.closest('.admin-header-main') || title.closest('.admin-header-copy');
+
+    if (!container) {
+      return;
+    }
+
+    const maxSize = window.innerWidth <= 920 ? 2.2 : 3.2;
+    const minSize = window.innerWidth <= 920 ? 1 : 1.18;
+    const availableWidth = Math.max(container.clientWidth - 18, 0);
+    let nextSize = maxSize;
+
+    title.style.fontSize = `${maxSize}rem`;
+    title.style.maxWidth = `${availableWidth}px`;
+
+    while (title.scrollWidth > availableWidth && nextSize > minSize) {
+      nextSize = Math.max(minSize, nextSize - 0.05);
+      title.style.fontSize = `${nextSize.toFixed(2)}rem`;
+    }
+  };
+
+  state.headerTitleResizeHandler = () => {
+    window.requestAnimationFrame(fitTitle);
+  };
+
+  window.addEventListener('resize', state.headerTitleResizeHandler);
+  window.requestAnimationFrame(fitTitle);
+  window.setTimeout(fitTitle, 140);
+  document.fonts?.ready?.then(() => {
+    window.requestAnimationFrame(fitTitle);
+  });
 }
 
 function rsvpColumnFallback() {
