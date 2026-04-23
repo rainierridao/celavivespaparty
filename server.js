@@ -2,12 +2,10 @@ const fs = require('fs');
 const path = require('path');
 const http = require('http');
 const {
-  appendRegistration,
+  handleApiRequest,
   createError,
-  getConfig,
-  loadEnvFile,
-  normalizePayload
-} = require('./lib/registration');
+  loadEnvFile
+} = require('./lib/platform');
 
 loadEnvFile(path.join(__dirname, '.env'));
 
@@ -16,25 +14,31 @@ const PORT = Number.parseInt(process.env.PORT || '8080', 10);
 const mimeTypes = {
   '.css': 'text/css; charset=utf-8',
   '.html': 'text/html; charset=utf-8',
+  '.jpg': 'image/jpeg',
   '.js': 'application/javascript; charset=utf-8',
-  '.json': 'application/json; charset=utf-8'
+  '.json': 'application/json; charset=utf-8',
+  '.jpeg': 'image/jpeg',
+  '.png': 'image/png',
+  '.svg': 'image/svg+xml; charset=utf-8',
+  '.webp': 'image/webp'
 };
 
 const server = http.createServer(async (req, res) => {
   try {
-    if (req.method === 'GET' && req.url === '/api/config') {
-      return sendJson(res, 200, getConfig());
-    }
-
-    if (req.method === 'POST' && req.url === '/api/register') {
-      const body = await readJsonBody(req);
-      const payload = normalizePayload(body);
-      await appendRegistration(payload);
-
-      return sendJson(res, 200, {
-        ok: true,
-        message: 'Registration saved successfully.'
+    if (req.url.startsWith('/api/') || req.url.startsWith('/.netlify/functions/api/')) {
+      const apiPath = req.url.startsWith('/.netlify/functions/api/')
+        ? req.url.replace('/.netlify/functions/api', '/api')
+        : req.url;
+      const body = req.method === 'GET' ? {} : await readJsonBody(req);
+      const apiResponse = await handleApiRequest({
+        method: req.method,
+        path: apiPath,
+        headers: req.headers,
+        body,
+        protocol: 'http'
       });
+
+      return sendJson(res, apiResponse.statusCode, apiResponse.payload, apiResponse.headers);
     }
 
     if (req.method === 'GET') {
@@ -55,10 +59,15 @@ server.listen(PORT, '127.0.0.1', () => {
 });
 
 function serveStaticFile(req, res) {
-  const requestPath = req.url === '/' ? '/public/index.html' : `/public${req.url}`;
-  const filePath = path.join(__dirname, requestPath);
+  const pathname = req.url.split('?')[0];
+  const relativePath =
+    pathname === '/' || !path.extname(pathname)
+      ? path.join('public', 'index.html')
+      : path.join('public', pathname.replace(/^\/+/, ''));
+  const filePath = path.join(__dirname, relativePath);
+  const publicRoot = path.join(__dirname, 'public');
 
-  if (!filePath.startsWith(path.join(__dirname, 'public'))) {
+  if (!filePath.startsWith(publicRoot)) {
     return sendJson(res, 403, { error: 'Forbidden.' });
   }
 
@@ -98,9 +107,10 @@ function readJsonBody(req) {
   });
 }
 
-function sendJson(res, statusCode, payload) {
+function sendJson(res, statusCode, payload, headers = {}) {
   res.writeHead(statusCode, {
-    'Content-Type': 'application/json; charset=utf-8'
+    'Content-Type': 'application/json; charset=utf-8',
+    ...headers
   });
   res.end(JSON.stringify(payload));
 }
