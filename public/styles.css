@@ -2783,13 +2783,14 @@ textarea {
   align-items: center;
   justify-content: flex-end;
   gap: 10px;
-  min-width: min(540px, 100%);
+  min-width: 0;
 }
 
 .dashboard-select-wrap {
   position: relative;
-  flex: 1 1 320px;
-  min-width: 260px;
+  flex: 0 1 560px;
+  width: min(560px, 100%);
+  min-width: 320px;
 }
 
 .dashboard-select-wrap::after {
