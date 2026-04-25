@@ -1664,6 +1664,12 @@ textarea {
   color: var(--software-muted);
 }
 
+@media (min-width: 721px) {
+  .admin-header-copy p {
+    display: none;
+  }
+}
+
 .admin-header-actions {
   display: flex;
   align-items: flex-start;
@@ -2377,6 +2383,18 @@ textarea {
   grid-template-columns: minmax(0, 1.02fr) minmax(420px, 0.98fr);
   gap: 20px;
   align-items: stretch;
+}
+
+.public-page-footer {
+  width: min(1260px, 100%);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+  padding: 0 6px;
+  color: #8f97ab;
+  font-size: 0.74rem;
 }
 
 .public-hero-panel,
@@ -4224,6 +4242,14 @@ textarea {
     max-width: calc(100vw - 24px);
     min-width: 0;
     gap: 12px;
+  }
+
+  .public-page-footer {
+    width: 100%;
+    max-width: calc(100vw - 24px);
+    margin-top: 14px;
+    padding: 0 4px calc(env(safe-area-inset-bottom) + 4px);
+    font-size: 0.68rem;
   }
 
   .public-hero-panel,

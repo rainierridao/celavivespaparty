@@ -1420,6 +1420,18 @@ function renderAuthShowcaseHtml() {
   `;
 }
 
+function renderPoweredFooter(footerClass = 'auth-legal') {
+  return `
+    <div class="${escapeAttribute(footerClass)}">
+      <span>Copyright &copy; 2026 GeneSys Team PH</span>
+      <span class="auth-powered">
+        <img src="/assets/logo/Renzoned_logo.png" alt="Renzoned logo">
+        <span>RenZoned Powered</span>
+      </span>
+    </div>
+  `;
+}
+
 function attachAuthShowcase() {
   const image = document.getElementById('authSlideshowImage');
   const dots = document.getElementById('authSlideshowDots');
@@ -2190,6 +2202,7 @@ function renderPublicEventPage(mode, eventData) {
           ${rsvpClosed ? renderPublicRsvpClosedCard(eventData, availability) : renderPublicFormCard(isRsvp)}
         </section>
       </div>
+      ${renderPoweredFooter('public-page-footer')}
     </div>
   `;
 }
