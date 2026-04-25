@@ -6352,6 +6352,80 @@ textarea {
 }
 
 @media (max-width: 720px) {
+  .create-event-form .date-input-shell {
+    position: relative;
+    display: flex;
+    align-items: center;
+    width: 100%;
+    min-width: 0;
+    overflow: visible;
+  }
+
+  .create-event-form .date-input-shell > input {
+    -webkit-appearance: auto;
+    appearance: auto;
+    display: block;
+    box-sizing: border-box;
+    flex: 1 1 auto;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    min-height: 46px;
+    height: 46px;
+    padding: 0 52px 0 14px !important;
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+    font-size: 0.84rem;
+    line-height: 1.2;
+    text-align: left;
+    text-align-last: left;
+    vertical-align: middle;
+    overflow: hidden;
+  }
+
+  .create-event-form input[type="datetime-local"]::-webkit-date-and-time-value {
+    min-height: 46px;
+    width: 100%;
+    text-align: left;
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+  }
+
+  .create-event-form input[type="datetime-local"]::-webkit-datetime-edit-fields-wrapper {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    flex-wrap: nowrap;
+    width: 100%;
+    min-height: 46px;
+    min-width: 0;
+    padding: 0;
+  }
+
+  .create-event-form input[type="datetime-local"]::-webkit-datetime-edit {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    width: 100%;
+    min-height: 46px;
+    min-width: 0;
+    text-align: left;
+    overflow: hidden;
+  }
+
+  .create-event-form input[type="datetime-local"]::-webkit-datetime-edit-text,
+  .create-event-form input[type="datetime-local"]::-webkit-datetime-edit-month-field,
+  .create-event-form input[type="datetime-local"]::-webkit-datetime-edit-day-field,
+  .create-event-form input[type="datetime-local"]::-webkit-datetime-edit-year-field,
+  .create-event-form input[type="datetime-local"]::-webkit-datetime-edit-hour-field,
+  .create-event-form input[type="datetime-local"]::-webkit-datetime-edit-minute-field,
+  .create-event-form input[type="datetime-local"]::-webkit-datetime-edit-ampm-field {
+    padding: 0 1px;
+    text-align: left;
+    align-self: center;
+  }
+
   .date-input-shell-button {
     display: inline-grid !important;
     right: 16px;
