@@ -1664,12 +1664,6 @@ textarea {
   color: var(--software-muted);
 }
 
-@media (min-width: 721px) {
-  .admin-header-copy p {
-    display: none;
-  }
-}
-
 .admin-header-actions {
   display: flex;
   align-items: flex-start;
@@ -2383,18 +2377,6 @@ textarea {
   grid-template-columns: minmax(0, 1.02fr) minmax(420px, 0.98fr);
   gap: 20px;
   align-items: stretch;
-}
-
-.public-page-footer {
-  width: min(1260px, 100%);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  margin-top: 16px;
-  padding: 0 6px;
-  color: #8f97ab;
-  font-size: 0.74rem;
 }
 
 .public-hero-panel,
@@ -3862,9 +3844,9 @@ textarea {
 .date-input-shell-button {
   position: absolute;
   right: 14px;
-  top: 50%;
-  bottom: auto;
-  transform: translateY(-50%);
+  top: 0;
+  bottom: 0;
+  margin: auto 0;
   z-index: 1;
   width: 20px !important;
   min-width: 20px !important;
@@ -3890,7 +3872,6 @@ textarea {
 .date-input-shell-button:focus-visible {
   background: transparent !important;
   box-shadow: none !important;
-  transform: translateY(-50%);
 }
 
 .admin-page input[type="date"],
@@ -4244,14 +4225,6 @@ textarea {
     gap: 12px;
   }
 
-  .public-page-footer {
-    width: 100%;
-    max-width: calc(100vw - 24px);
-    margin-top: 14px;
-    padding: 0 4px calc(env(safe-area-inset-bottom) + 4px);
-    font-size: 0.68rem;
-  }
-
   .public-hero-panel,
   .public-form-card {
     width: 100%;
@@ -4512,11 +4485,8 @@ textarea {
   .admin-page {
     height: auto;
     min-height: 100svh;
-    padding: 10px 10px var(--mobile-admin-nav-offset);
-    position: relative;
+    padding: 10px;
     overflow: auto;
-    overscroll-behavior-y: contain;
-    -webkit-overflow-scrolling: touch;
   }
 
   .admin-app-shell {
@@ -4581,11 +4551,7 @@ textarea {
     border-radius: 0;
     border-top: 1px solid rgba(255, 255, 255, 0.1);
     box-shadow: 0 -18px 34px rgba(11, 13, 22, 0.22);
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
-    transform: translateZ(0);
-    -webkit-transform: translateZ(0);
-    backface-visibility: hidden;
+    backdrop-filter: blur(16px);
   }
 
   .sidebar-link {
@@ -4819,15 +4785,11 @@ textarea {
   }
 
   .selected-event-actions .button-link {
-    display: grid;
-    grid-template-columns: 10px minmax(0, 1fr);
-    align-items: center;
-    justify-content: center;
-    min-height: 44px !important;
-    padding: 0 8px !important;
-    column-gap: 6px;
-    font-size: 0.43rem !important;
-    line-height: 1.05;
+    min-height: 42px !important;
+    padding: 0 10px !important;
+    gap: 4reduce tpx;
+    font-size: 0.48rem !important;
+    line-height: 1;
     white-space: normal;
   }
 
@@ -4835,24 +4797,25 @@ textarea {
     display: -webkit-box;
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 2;
-    min-width: 0;
-    width: 100%;
+    max-width: 90px;
     overflow: hidden;
     text-align: center;
-    line-height: 1.08;
-    overflow-wrap: anywhere;
+    line-height: 1.1;
   }
 
-  .selected-event-action-rsvp-open span:last-child {
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    white-space: normal;
+  .selected-event-action-rsvp-open span:last-child,
+  .selected-event-action-attendance-open span:last-child,
+  .selected-event-action-rsvp-responses span:last-child {
+    display: block;
+    -webkit-line-clamp: unset;
+    max-width: none;
+    white-space: nowrap;
   }
 
   .selected-event-action-icon,
   .selected-event-action-icon svg {
-    width: 9px;
-    height: 9px;
+    width: 11px;
+    height: 11px;
   }
 
   .quick-panel h3 {
@@ -5283,15 +5246,8 @@ textarea {
 }
 
 .profile-popover-back-action {
-  display: none !important;
   opacity: 1;
   pointer-events: auto;
-}
-
-@media (min-width: 721px) {
-  .profile-popover-back-action {
-    display: none !important;
-  }
 }
 
 .profile-popover[data-view="password"] .profile-popover-back-action {
@@ -5853,10 +5809,6 @@ textarea {
 }
 
 @media (max-width: 720px) {
-  .profile-back-button svg {
-    transform: rotate(90deg);
-  }
-
   .profile-anchor {
     width: 113px;
     height: 30px;
@@ -6073,7 +6025,6 @@ textarea {
   }
 
   .profile-popover-back-action {
-    display: inline-grid !important;
     margin-left: 0;
   }
 
@@ -6327,15 +6278,6 @@ textarea {
 }
 
 @media (max-width: 720px) {
-  .create-event-form select,
-  .create-event-form .date-input-shell,
-  .create-event-form .date-input-shell > input,
-  .admin-header-modern-event .date-input-shell,
-  .admin-header-modern-event .date-input-shell > input {
-    min-height: 54px;
-    height: 54px;
-  }
-
   .date-input-shell-button {
     display: inline-grid !important;
     right: 16px;
@@ -6347,40 +6289,12 @@ textarea {
   }
 
   .date-input-shell > input {
-    display: block;
-    box-sizing: border-box;
-    padding: 0 52px 0 16px !important;
-    text-align: left;
-    line-height: 1.2;
+    padding-right: 48px !important;
   }
 
   .date-input-shell-button svg {
     width: 24px;
     height: 24px;
-  }
-
-  .admin-page input[type="date"]::-webkit-datetime-edit,
-  .admin-page input[type="datetime-local"]::-webkit-datetime-edit,
-  .public-page input[type="date"]::-webkit-datetime-edit,
-  .public-page input[type="datetime-local"]::-webkit-datetime-edit {
-    display: flex;
-    align-items: center;
-    justify-content: flex-start;
-    min-height: 100%;
-    padding: 0;
-    text-align: left;
-  }
-
-  .admin-page input[type="date"]::-webkit-datetime-edit-fields-wrapper,
-  .admin-page input[type="datetime-local"]::-webkit-datetime-edit-fields-wrapper,
-  .public-page input[type="date"]::-webkit-datetime-edit-fields-wrapper,
-  .public-page input[type="datetime-local"]::-webkit-datetime-edit-fields-wrapper {
-    display: flex;
-    align-items: center;
-    justify-content: flex-start;
-    min-width: 0;
-    min-height: 100%;
-    padding: 0;
   }
 
   .admin-page input[type="date"]::-webkit-calendar-picker-indicator,
@@ -6469,7 +6383,6 @@ textarea {
     max-width: 100%;
     flex: none;
     justify-self: stretch;
-    overflow: hidden;
   }
 
   .admin-header-modern-event .event-header-schedule-field label,
@@ -6481,57 +6394,37 @@ textarea {
 
   .admin-header-modern-event .date-input-shell {
     position: relative;
-    display: flex;
-    align-items: center;
+    display: block;
     width: 100%;
     min-width: 0;
     justify-self: stretch;
-    overflow: hidden;
+    overflow: visible;
   }
 
   .admin-header-modern-event .date-input-shell > input {
     -webkit-appearance: auto;
     appearance: auto;
-    display: flex;
-    align-items: center;
+    display: block;
     box-sizing: border-box;
-    flex: 1 1 auto;
     width: 100%;
     max-width: 100%;
     min-width: 0;
-    min-height: 54px;
-    height: 54px;
-    padding: 0 52px 0 16px !important;
+    min-height: 46px;
+    height: 46px;
+    padding: 0 14px !important;
     font-size: 0.84rem;
-    line-height: 1.2;
-    text-align: left;
-    text-indent: 0;
-    direction: ltr;
+    line-height: 1.1;
     overflow: hidden;
-  }
-
-  .admin-header-modern-event .event-header-schedule-field input[type="datetime-local"] {
-    justify-content: flex-start;
   }
 
   .admin-header-modern-event .event-header-schedule-field input[type="datetime-local"]::-webkit-datetime-edit-fields-wrapper {
     display: flex;
     align-items: center;
-    justify-content: flex-start;
-    flex: 1 1 auto;
-    width: 100%;
     min-width: 0;
-    min-height: 100%;
     padding: 0;
   }
 
   .admin-header-modern-event .event-header-schedule-field input[type="datetime-local"]::-webkit-datetime-edit {
-    display: flex;
-    align-items: center;
-    justify-content: flex-start;
-    flex: 1 1 auto;
-    width: 100%;
-    min-height: 100%;
     min-width: 0;
     overflow: hidden;
   }
@@ -6544,11 +6437,6 @@ textarea {
   .admin-header-modern-event .event-header-schedule-field input[type="datetime-local"]::-webkit-datetime-edit-minute-field,
   .admin-header-modern-event .event-header-schedule-field input[type="datetime-local"]::-webkit-datetime-edit-ampm-field {
     padding: 0 1px;
-  }
-
-  .admin-header-modern-event .event-header-schedule-field input[type="datetime-local"]::-webkit-date-and-time-value {
-    min-width: 0;
-    text-align: left;
   }
 
   .admin-header-modern-event .event-header-actions-row {
