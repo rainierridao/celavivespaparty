@@ -6429,11 +6429,23 @@ textarea {
     min-height: 46px;
     height: 46px;
     padding: 0 52px 0 14px !important;
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
     font-size: 0.84rem;
     line-height: 1.2;
     text-align: left;
+    text-align-last: left;
     vertical-align: middle;
     overflow: hidden;
+  }
+
+  .admin-header-modern-event .event-header-schedule-field input[type="datetime-local"]::-webkit-date-and-time-value {
+    min-height: 46px;
+    width: 100%;
+    text-align: left;
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
   }
 
   .admin-header-modern-event .event-header-schedule-field input[type="datetime-local"]::-webkit-datetime-edit-fields-wrapper {
@@ -6442,6 +6454,7 @@ textarea {
     justify-content: flex-start;
     flex-wrap: nowrap;
     width: 100%;
+    min-height: 46px;
     min-width: 0;
     padding: 0;
   }
@@ -6451,6 +6464,7 @@ textarea {
     align-items: center;
     justify-content: flex-start;
     width: 100%;
+    min-height: 46px;
     min-width: 0;
     text-align: left;
     overflow: hidden;
