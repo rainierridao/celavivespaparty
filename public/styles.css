@@ -6469,6 +6469,7 @@ textarea {
     max-width: 100%;
     flex: none;
     justify-self: stretch;
+    overflow: hidden;
   }
 
   .admin-header-modern-event .event-header-schedule-field label,
@@ -6480,18 +6481,21 @@ textarea {
 
   .admin-header-modern-event .date-input-shell {
     position: relative;
-    display: block;
+    display: flex;
+    align-items: center;
     width: 100%;
     min-width: 0;
     justify-self: stretch;
-    overflow: visible;
+    overflow: hidden;
   }
 
   .admin-header-modern-event .date-input-shell > input {
     -webkit-appearance: auto;
     appearance: auto;
-    display: block;
+    display: flex;
+    align-items: center;
     box-sizing: border-box;
+    flex: 1 1 auto;
     width: 100%;
     max-width: 100%;
     min-width: 0;
@@ -6501,13 +6505,21 @@ textarea {
     font-size: 0.84rem;
     line-height: 1.2;
     text-align: left;
+    text-indent: 0;
+    direction: ltr;
     overflow: hidden;
+  }
+
+  .admin-header-modern-event .event-header-schedule-field input[type="datetime-local"] {
+    justify-content: flex-start;
   }
 
   .admin-header-modern-event .event-header-schedule-field input[type="datetime-local"]::-webkit-datetime-edit-fields-wrapper {
     display: flex;
     align-items: center;
     justify-content: flex-start;
+    flex: 1 1 auto;
+    width: 100%;
     min-width: 0;
     min-height: 100%;
     padding: 0;
@@ -6517,6 +6529,8 @@ textarea {
     display: flex;
     align-items: center;
     justify-content: flex-start;
+    flex: 1 1 auto;
+    width: 100%;
     min-height: 100%;
     min-width: 0;
     overflow: hidden;
@@ -6530,6 +6544,11 @@ textarea {
   .admin-header-modern-event .event-header-schedule-field input[type="datetime-local"]::-webkit-datetime-edit-minute-field,
   .admin-header-modern-event .event-header-schedule-field input[type="datetime-local"]::-webkit-datetime-edit-ampm-field {
     padding: 0 1px;
+  }
+
+  .admin-header-modern-event .event-header-schedule-field input[type="datetime-local"]::-webkit-date-and-time-value {
+    min-width: 0;
+    text-align: left;
   }
 
   .admin-header-modern-event .event-header-actions-row {
