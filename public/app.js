@@ -2202,7 +2202,6 @@ function renderPublicEventPage(mode, eventData) {
           ${rsvpClosed ? renderPublicRsvpClosedCard(eventData, availability) : renderPublicFormCard(isRsvp)}
         </section>
       </div>
-      ${renderPoweredFooter('public-page-footer')}
     </div>
   `;
 }
@@ -2224,9 +2223,7 @@ function renderPublicFormCard(isRsvp) {
         </div>
       </form>
 
-      <div class="footer-note">
-        Your response will be saved to this event&apos;s dedicated Google Sheet tab.
-      </div>
+      ${renderPoweredFooter('footer-note auth-legal public-form-powered')}
     </div>
   `;
 }

@@ -505,6 +505,43 @@ textarea {
   object-fit: contain;
 }
 
+.public-form-powered.auth-legal {
+  margin-top: 18px;
+  padding-top: 0;
+  justify-content: center;
+  align-items: center;
+  flex-direction: column;
+  gap: 4px;
+  text-align: center;
+  font-size: 0.64rem;
+}
+
+.public-form-powered.auth-legal .auth-powered {
+  font: inherit;
+  color: inherit;
+}
+
+@media (min-width: 921px) {
+  .public-form-powered.auth-legal {
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    text-align: left;
+    font-size: 0.58rem;
+  }
+
+  .public-form-powered.auth-legal > span:first-child {
+    text-align: left;
+  }
+
+  .public-form-powered.auth-legal .auth-powered {
+    justify-content: flex-end;
+    text-align: right;
+    margin-left: auto;
+  }
+}
+
 .auth-showcase {
   padding: 0;
 }
