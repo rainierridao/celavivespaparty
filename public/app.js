@@ -2461,7 +2461,7 @@ function renderAdminSidebar(activeView, user, eventCount) {
               <span class="sidebar-avatar">${escapeHtml(initials)}</span>
               <span class="profile-trigger-icon" aria-hidden="true">
                 <svg viewBox="0 0 24 24" fill="none">
-                  <path d="M15 6L9 12L15 18" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+                  <path d="M7 10L12 15L17 10" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
                 </svg>
               </span>
             </span>
@@ -2490,7 +2490,7 @@ function renderAdminSidebar(activeView, user, eventCount) {
               <button type="button" class="profile-popover-action profile-popover-back-action" data-profile-back title="Back" aria-label="Back to profile menu">
                 <span class="profile-action-icon">
                   <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                    <path d="M9.5 7L14.5 12L9.5 17" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M8 10L12 14L16 10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
                   </svg>
                 </span>
                 <span class="profile-action-label">Back</span>
@@ -2501,7 +2501,7 @@ function renderAdminSidebar(activeView, user, eventCount) {
                 <strong>Change password</strong>
                 <button type="button" class="profile-back-button" data-profile-back aria-label="Back to profile menu">
                   <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                    <path d="M8 14L12 10L16 14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M14 8L10 12L14 16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
                   </svg>
                 </button>
               </div>
