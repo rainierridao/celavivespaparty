@@ -5246,13 +5246,15 @@ textarea {
 }
 
 .profile-popover-back-action {
-  opacity: 1;
-  pointer-events: auto;
+  display: none;
+  opacity: 0;
+  pointer-events: none;
 }
 
 .profile-popover[data-view="password"] .profile-popover-back-action {
-  opacity: 1;
-  pointer-events: auto;
+  display: none;
+  opacity: 0;
+  pointer-events: none;
 }
 
 .profile-action-icon {
@@ -6025,7 +6027,13 @@ textarea {
   }
 
   .profile-popover-back-action {
+    display: inline-grid;
     margin-left: 0;
+  }
+
+  .profile-popover-back-action svg {
+    transform: rotate(90deg);
+    transform-origin: center;
   }
 
   .profile-popover[data-view="menu"] .profile-popover-back-action {
@@ -6041,6 +6049,7 @@ textarea {
   }
 
   .profile-popover[data-view="password"] .profile-popover-back-action {
+    display: inline-grid;
     opacity: 1;
     transform: translateX(0) scale(1);
     pointer-events: auto;
@@ -6070,6 +6079,11 @@ textarea {
 
   .profile-back-button {
     right: 0;
+  }
+
+  .profile-back-button svg {
+    transform: rotate(90deg);
+    transform-origin: center;
   }
 
   .profile-password-form {
@@ -6388,13 +6402,15 @@ textarea {
   .admin-header-modern-event .event-header-schedule-field label,
   .admin-header-modern-event .event-header-schedule-field input[type="datetime-local"],
   .admin-header-modern-event .date-input-shell {
+    width: 100%;
     min-width: 0;
     max-width: 100%;
   }
 
   .admin-header-modern-event .date-input-shell {
     position: relative;
-    display: block;
+    display: flex;
+    align-items: center;
     width: 100%;
     min-width: 0;
     justify-self: stretch;
@@ -6406,26 +6422,37 @@ textarea {
     appearance: auto;
     display: block;
     box-sizing: border-box;
+    flex: 1 1 auto;
     width: 100%;
     max-width: 100%;
     min-width: 0;
     min-height: 46px;
     height: 46px;
-    padding: 0 14px !important;
+    padding: 0 52px 0 14px !important;
     font-size: 0.84rem;
-    line-height: 1.1;
+    line-height: 1.2;
+    text-align: left;
+    vertical-align: middle;
     overflow: hidden;
   }
 
   .admin-header-modern-event .event-header-schedule-field input[type="datetime-local"]::-webkit-datetime-edit-fields-wrapper {
     display: flex;
     align-items: center;
+    justify-content: flex-start;
+    flex-wrap: nowrap;
+    width: 100%;
     min-width: 0;
     padding: 0;
   }
 
   .admin-header-modern-event .event-header-schedule-field input[type="datetime-local"]::-webkit-datetime-edit {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    width: 100%;
     min-width: 0;
+    text-align: left;
     overflow: hidden;
   }
 
@@ -6437,6 +6464,23 @@ textarea {
   .admin-header-modern-event .event-header-schedule-field input[type="datetime-local"]::-webkit-datetime-edit-minute-field,
   .admin-header-modern-event .event-header-schedule-field input[type="datetime-local"]::-webkit-datetime-edit-ampm-field {
     padding: 0 1px;
+    text-align: left;
+    align-self: center;
+  }
+
+  .admin-header-modern-event .date-input-shell-button {
+    position: absolute;
+    top: 50%;
+    right: 16px;
+    bottom: auto;
+    transform: translateY(-50%);
+    display: inline-grid !important;
+    place-items: center;
+    z-index: 1;
+    width: 24px !important;
+    min-width: 24px !important;
+    height: 24px !important;
+    min-height: 24px !important;
   }
 
   .admin-header-modern-event .event-header-actions-row {
