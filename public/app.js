@@ -298,6 +298,7 @@ async function renderRoute() {
       const result = await fetchJson(`/public-events/${rsvpMatch[1]}`);
       renderPage(renderPublicEventPage('rsvp', result.event));
       attachPublicShowcase();
+      syncDynamicHeaderTitle();
       attachRsvpHandlers(result.event);
     } catch (error) {
       renderPage(renderErrorPage('Unable to load that RSVP page.', error.message));
@@ -315,6 +316,7 @@ async function renderRoute() {
       const result = await fetchJson(`/public-events/${attendanceMatch[1]}`);
       renderPage(renderPublicEventPage('attendance', result.event));
       attachPublicShowcase();
+      syncDynamicHeaderTitle();
       attachAttendanceHandlers(result.event);
     } catch (error) {
       renderPage(renderErrorPage('Unable to load that attendance page.', error.message));
@@ -410,7 +412,16 @@ function handleGlobalClick(event) {
 
   if (profileBack) {
     event.preventDefault();
-    showProfileMenu();
+    const popover = document.getElementById('profilePopover');
+    const isMenuBackAction =
+      profileBack.classList.contains('profile-popover-back-action') &&
+      (!popover || popover.dataset.view === 'menu');
+
+    if (isMenuBackAction) {
+      closeProfilePopover();
+    } else {
+      showProfileMenu();
+    }
     return;
   }
 
@@ -427,6 +438,13 @@ function handleGlobalClick(event) {
 
 function handleGlobalKeydown(event) {
   if (event.key === 'Escape') {
+    const rsvpSettingsModal = document.getElementById('rsvpSettingsModal');
+
+    if (rsvpSettingsModal && !rsvpSettingsModal.hidden) {
+      closeRsvpSettingsModal();
+      return;
+    }
+
     if (resolveConfirmModal(false)) {
       return;
     }
@@ -823,7 +841,71 @@ function attachEventDetailHandlers(eventData) {
   const scheduleForm = document.getElementById('eventScheduleForm');
   const archiveButton = document.getElementById('toggleArchiveEventButton');
   const deleteButton = document.getElementById('deleteEventButton');
+  const rsvpSettingsButton = document.getElementById('openRsvpSettingsButton');
+  const rsvpSettingsModal = document.getElementById('rsvpSettingsModal');
+  const rsvpSettingsForm = document.getElementById('rsvpSettingsForm');
+  const closeRsvpSettingsButtons = Array.from(document.querySelectorAll('[data-close-rsvp-settings]'));
   const managementStatus = document.getElementById('eventManagementStatus');
+
+  if (rsvpSettingsButton && rsvpSettingsModal) {
+    rsvpSettingsButton.addEventListener('click', () => {
+      rsvpSettingsModal.hidden = false;
+      window.requestAnimationFrame(() => {
+        rsvpSettingsModal.classList.add('is-open');
+        const firstField = rsvpSettingsModal.querySelector('input, button');
+
+        if (firstField) {
+          firstField.focus();
+        }
+      });
+    });
+  }
+
+  closeRsvpSettingsButtons.forEach((button) => {
+    button.addEventListener('click', () => closeRsvpSettingsModal());
+  });
+
+  if (rsvpSettingsModal) {
+    rsvpSettingsModal.addEventListener('click', (event) => {
+      if (event.target === rsvpSettingsModal) {
+        closeRsvpSettingsModal();
+      }
+    });
+  }
+
+  if (rsvpSettingsForm) {
+    rsvpSettingsForm.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const submitButton = rsvpSettingsForm.querySelector('button[type="submit"]');
+      const status = document.getElementById('rsvpSettingsStatus');
+      const acceptingInput = rsvpSettingsForm.querySelector('#rsvpAccepting');
+      const maxYesInput = rsvpSettingsForm.querySelector('#rsvpMaxYes');
+
+      setStatus(status, '', '');
+
+      try {
+        setButtonLoading(submitButton, true, 'Saving...');
+        const result = await fetchJson(`/events/${eventData.eventId}`, {
+          method: 'PATCH',
+          body: {
+            action: 'rsvp-settings',
+            rsvpAccepting: Boolean(acceptingInput && acceptingInput.checked),
+            rsvpMaxYes: maxYesInput ? maxYesInput.value : ''
+          }
+        });
+
+        setStatus(status, result.message, 'is-success');
+        window.setTimeout(() => {
+          closeRsvpSettingsModal();
+          navigate(`/events/${encodeURIComponent(result.event.eventId)}`, true);
+        }, 500);
+      } catch (error) {
+        setStatus(status, error.message, 'is-error');
+      } finally {
+        setButtonLoading(submitButton, false, 'Save Settings');
+      }
+    });
+  }
 
   if (scheduleForm) {
     scheduleForm.addEventListener('submit', async (event) => {
@@ -924,8 +1006,27 @@ function attachEventDetailHandlers(eventData) {
   }
 }
 
+function closeRsvpSettingsModal() {
+  const modal = document.getElementById('rsvpSettingsModal');
+
+  if (!modal || modal.hidden) {
+    return;
+  }
+
+  modal.classList.remove('is-open');
+  window.setTimeout(() => {
+    if (modal.isConnected) {
+      modal.hidden = true;
+    }
+  }, 180);
+}
+
 function attachRsvpHandlers(eventData) {
   const form = document.getElementById('publicEventForm');
+
+  if (!form) {
+    return;
+  }
 
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
@@ -1015,6 +1116,15 @@ function attachPublicShowcase() {
   image.src = publicCelaviveSlides[0];
   image.classList.add('is-visible');
 
+  const staticMobileClosedHero =
+    window.matchMedia('(max-width: 720px)').matches &&
+    Boolean(document.querySelector('.public-shell-modern.is-rsvp-closed'));
+
+  if (staticMobileClosedHero) {
+    dots.innerHTML = '';
+    return;
+  }
+
   const syncSlides = () => {
     image.classList.remove('is-visible');
 
@@ -1046,6 +1156,7 @@ async function logout() {
 
 function renderAuthPage(mode) {
   const isLogin = mode === 'login';
+  const authShowcase = renderAuthShowcaseHtml();
 
   return `
     <div class="auth-page">
@@ -1144,21 +1255,15 @@ function renderAuthPage(mode) {
             </div>
           </div>
         </div>
-        <aside class="auth-showcase">
-          <div class="auth-showcase-frame">
-            <img id="authSlideshowImage" class="auth-showcase-image" src="${authSlides[0]}" alt="Celavive event slideshow">
-            <div class="auth-showcase-overlay">
-              <div></div>
-              <div id="authSlideshowDots" class="auth-slideshow-dots" aria-hidden="true"></div>
-            </div>
-          </div>
-        </aside>
+        ${authShowcase}
       </section>
     </div>
   `;
 }
 
 function renderForgotPasswordPage() {
+  const authShowcase = renderAuthShowcaseHtml();
+
   return `
     <div class="auth-page">
       <section class="auth-shell">
@@ -1197,21 +1302,15 @@ function renderForgotPasswordPage() {
             </div>
           </div>
         </div>
-        <aside class="auth-showcase">
-          <div class="auth-showcase-frame">
-            <img id="authSlideshowImage" class="auth-showcase-image" src="${authSlides[0]}" alt="Celavive event slideshow">
-            <div class="auth-showcase-overlay">
-              <div></div>
-              <div id="authSlideshowDots" class="auth-slideshow-dots" aria-hidden="true"></div>
-            </div>
-          </div>
-        </aside>
+        ${authShowcase}
       </section>
     </div>
   `;
 }
 
 function renderResetPasswordPage(token) {
+  const authShowcase = renderAuthShowcaseHtml();
+
   return `
     <div class="auth-page">
       <section class="auth-shell">
@@ -1297,17 +1396,27 @@ function renderResetPasswordPage(token) {
             </div>
           </div>
         </div>
-        <aside class="auth-showcase">
-          <div class="auth-showcase-frame">
-            <img id="authSlideshowImage" class="auth-showcase-image" src="${authSlides[0]}" alt="Celavive event slideshow">
-            <div class="auth-showcase-overlay">
-              <div></div>
-              <div id="authSlideshowDots" class="auth-slideshow-dots" aria-hidden="true"></div>
-            </div>
-          </div>
-        </aside>
+        ${authShowcase}
       </section>
     </div>
+  `;
+}
+
+function renderAuthShowcaseHtml() {
+  if (window.matchMedia('(max-width: 940px)').matches) {
+    return '';
+  }
+
+  return `
+    <aside class="auth-showcase">
+      <div class="auth-showcase-frame">
+        <img id="authSlideshowImage" class="auth-showcase-image" src="${authSlides[0]}" alt="Celavive event slideshow">
+        <div class="auth-showcase-overlay">
+          <div></div>
+          <div id="authSlideshowDots" class="auth-slideshow-dots" aria-hidden="true"></div>
+        </div>
+      </div>
+    </aside>
   `;
 }
 
@@ -1415,10 +1524,23 @@ function renderDashboardPage(user, events) {
           </select>
         </label>
         <button id="manageSelectedEventButton" type="button" class="button-link button-link-secondary" ${activeEvents.length ? '' : 'disabled'}>
-          Manage Event
+          <span class="dashboard-action-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none">
+              <path d="M7 3V6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+              <path d="M17 3V6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+              <path d="M4 9H20" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+              <rect x="4" y="5" width="16" height="15" rx="3" stroke="currentColor" stroke-width="1.8"/>
+            </svg>
+          </span>
+          <span>Manage Event</span>
         </button>
         <button id="createEventButton" type="button" class="topbar-primary">
-          <span>+</span>
+          <span class="dashboard-action-icon dashboard-action-icon-plus" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none">
+              <path d="M12 5V19" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+              <path d="M5 12H19" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+          </span>
           <span>Create Event</span>
         </button>
       </div>
@@ -1426,11 +1548,17 @@ function renderDashboardPage(user, events) {
     content: `
       <section class="dashboard-grid">
         <div class="dashboard-main">
-          <div class="dashboard-overview-grid">
-            ${renderSummaryCard('Total Events', String(summary.totalEvents), 'Live workspace volume', 'is-dark')}
-            ${renderSummaryCard('Upcoming', summary.upcomingDate, summary.upcomingLabel, 'is-accent')}
-            ${renderSummaryCard('Event Types', String(summary.uniqueEventTypes), 'Distinct programs scheduled', 'is-muted')}
-            ${renderSummaryCard('Public Forms', String(summary.formsPublished), 'RSVP and attendance pages ready', 'is-soft')}
+          <div class="workspace-panel dashboard-overview-card">
+            <div class="dashboard-overview-head">
+              <span class="section-kicker">Workspace snapshot</span>
+              <span class="dashboard-overview-hint">Swipe to view all</span>
+            </div>
+            <div class="dashboard-overview-grid">
+              ${renderSummaryCard('Total Events', String(summary.totalEvents), 'Live workspace volume', 'is-dark')}
+              ${renderSummaryCard('Upcoming', summary.upcomingDate, summary.upcomingLabel, 'is-accent')}
+              ${renderSummaryCard('Event Types', String(summary.uniqueEventTypes), 'Distinct programs scheduled', 'is-muted')}
+              ${renderSummaryCard('Public Forms', String(summary.formsPublished), 'RSVP and attendance pages ready', 'is-soft')}
+            </div>
           </div>
         </div>
 
@@ -1515,8 +1643,8 @@ function renderCreateEventPage() {
             </div>
           </div>
 
-          <form id="eventForm" class="stack-form modern-form">
-            <div class="grid">
+          <form id="eventForm" class="stack-form modern-form create-event-form">
+            <div class="grid create-event-fields">
               <div class="field">
                 <label for="eventType">Event Type <span class="required">*</span></label>
                 <select id="eventType" name="eventType" required>
@@ -1527,7 +1655,7 @@ function renderCreateEventPage() {
               <div class="field">
                 <label for="dateTime">Date and Time <span class="required">*</span></label>
                 <div class="date-input-shell">
-                  <input id="dateTime" name="dateTime" type="datetime-local" required>
+                  <input id="dateTime" name="dateTime" type="datetime-local" data-mobile-picker required>
                   <button type="button" class="date-input-shell-button" data-show-picker data-target="dateTime" aria-label="Open date and time picker">
                     <svg viewBox="0 0 24 24" fill="none">
                       <path d="M7 3V6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
@@ -1575,12 +1703,12 @@ function renderEventDetailPage(eventData, previews = {}) {
   return renderAdminFrame({
     activeView: eventData.isArchived ? 'archive' : 'dashboard',
     user: state.session,
-    title: eventData.eventLabel,
+    title: eventData.eventType,
     titleClass: eventData.isArchived ? '' : 'admin-title-dynamic',
     subtitle: eventData.isArchived
       ? 'Review this completed event and its published response history.'
       : 'Share RSVP, capture attendance, and review responses from one event workspace.',
-    badge: eventData.eventType,
+    badge: eventData.isArchived ? eventData.eventType : 'Event',
     headerDetails: eventData.isArchived ? '' : renderEventHeaderControls(eventData),
     headerControls: renderHeaderBackLink(eventData.isArchived ? '/events/archive' : '/dashboard', eventData.isArchived ? 'Back to archive' : 'Back to dashboard'),
     content: `
@@ -1593,6 +1721,15 @@ function renderEventDetailPage(eventData, previews = {}) {
                 <h2>Public links and launch actions</h2>
                 <p>Use the published links below to invite attendees or register them on-site.</p>
               </div>
+              ${
+                eventData.isArchived
+                  ? ''
+                  : `
+                    <button id="openRsvpSettingsButton" type="button" class="button-link button-link-secondary rsvp-settings-open-button">
+                      RSVP Settings
+                    </button>
+                  `
+              }
             </div>
             <div class="detail-link-grid">
               <div class="link-stack modern-link-stack">
@@ -1651,8 +1788,66 @@ function renderEventDetailPage(eventData, previews = {}) {
           </section>
         </aside>
       </section>
+      ${eventData.isArchived ? '' : renderRsvpSettingsModal(eventData)}
     `
   });
+}
+
+function renderRsvpSettingsModal(eventData) {
+  const availability = eventData.rsvpAvailability || {};
+  const maxYes = eventData.rsvpMaxYes || availability.maxYes || '';
+  const yesCount = Number.isFinite(availability.yesCount) ? availability.yesCount : 0;
+
+  return `
+    <div id="rsvpSettingsModal" class="rsvp-settings-modal" hidden>
+      <section class="rsvp-settings-surface" role="dialog" aria-modal="true" aria-labelledby="rsvpSettingsTitle">
+        <div class="rsvp-settings-head">
+          <div>
+            <span class="section-kicker">RSVP controls</span>
+            <h2 id="rsvpSettingsTitle">RSVP Settings</h2>
+            <p>${yesCount} accepted Yes RSVP${yesCount === 1 ? '' : 's'} so far.</p>
+          </div>
+          <button type="button" class="rsvp-settings-close" data-close-rsvp-settings aria-label="Close RSVP settings">
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M7 7L17 17" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
+              <path d="M17 7L7 17" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
+            </svg>
+          </button>
+        </div>
+        <form id="rsvpSettingsForm" class="rsvp-settings-form">
+          <label class="rsvp-toggle-row" for="rsvpAccepting">
+            <span>
+              <strong>Accept RSVPs</strong>
+            </span>
+            <input id="rsvpAccepting" name="rsvpAccepting" type="checkbox" ${eventData.rsvpAccepting ? 'checked' : ''}>
+            <span class="rsvp-lock-toggle" aria-hidden="true">
+              <span class="rsvp-lock rsvp-lock-closed">
+                <svg viewBox="0 0 24 24" fill="none">
+                  <rect x="5.5" y="10" width="13" height="10" rx="2.4" stroke="currentColor" stroke-width="1.9"/>
+                  <path d="M8.5 10V7.5C8.5 5.6 10 4.1 12 4.1C14 4.1 15.5 5.6 15.5 7.5V10" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
+                </svg>
+              </span>
+              <span class="rsvp-lock rsvp-lock-open">
+                <svg viewBox="0 0 24 24" fill="none">
+                  <rect x="5.5" y="10" width="13" height="10" rx="2.4" stroke="currentColor" stroke-width="1.9"/>
+                  <path d="M8.5 10V7.5C8.5 5.6 10 4.1 12 4.1C13.3 4.1 14.4 4.8 15 5.8" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
+                </svg>
+              </span>
+            </span>
+          </label>
+          <div class="field">
+            <label for="rsvpMaxYes">Max accepted Yes RSVPs</label>
+            <input id="rsvpMaxYes" name="rsvpMaxYes" type="number" min="1" step="1" inputmode="numeric" value="${escapeAttribute(maxYes)}" placeholder="Example: 20">
+          </div>
+          <div id="rsvpSettingsStatus" class="status" aria-live="polite"></div>
+          <div class="rsvp-settings-actions">
+            <button type="button" class="button-link button-link-secondary" data-close-rsvp-settings>Cancel</button>
+            <button type="submit">Save Settings</button>
+          </div>
+        </form>
+      </section>
+    </div>
+  `;
 }
 
 function renderResponsesPage(title, eventData, responses, mode) {
@@ -1666,7 +1861,7 @@ function renderResponsesPage(title, eventData, responses, mode) {
     badge: eventData.eventType,
     headerControls: renderHeaderBackLink(`/events/${encodeURIComponent(eventData.eventId)}`, 'Back to event'),
     content: `
-      <section class="workspace-panel workspace-panel-large responses-panel">
+      <section class="workspace-panel workspace-panel-large responses-panel${mode === 'rsvp' ? ' responses-panel-rsvp' : ''}">
         <div class="workspace-heading">
           <div>
             <span class="section-kicker">Response log</span>
@@ -1677,7 +1872,10 @@ function renderResponsesPage(title, eventData, responses, mode) {
         </div>
         ${
           responses.length
-            ? renderTable(columns, responses)
+            ? `
+              ${renderTable(columns, responses)}
+              ${mode === 'rsvp' ? renderMobileRsvpResponses(columns, responses) : ''}
+            `
             : `
               <div class="empty-state empty-state-modern">
                 <strong>No responses yet.</strong>
@@ -1709,6 +1907,25 @@ function renderHeaderBackLink(href, label) {
 }
 
 function renderEventActionIcon(action) {
+  if (action === 'external') {
+    return `
+      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M7 17L17 7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+        <path d="M9 7H17V15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    `;
+  }
+
+  if (action === 'responses') {
+    return `
+      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M6 7.5C6 6.67 6.67 6 7.5 6H16.5C17.33 6 18 6.67 18 7.5V13.5C18 14.33 17.33 15 16.5 15H11L7.25 18V15H7.5C6.67 15 6 14.33 6 13.5V7.5Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+        <path d="M9 9.5H15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+        <path d="M9 12H13.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+      </svg>
+    `;
+  }
+
   if (action === 'archive') {
     return `
       <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -1749,7 +1966,7 @@ function renderEventHeaderControls(eventData) {
       <div class="event-header-schedule-field">
         <label for="manageDateTime">Reschedule event</label>
         <div class="date-input-shell">
-          <input id="manageDateTime" name="dateTime" type="datetime-local" value="${escapeAttribute(formatDateTimeLocalValue(eventData.dateTime))}" required>
+          <input id="manageDateTime" name="dateTime" type="datetime-local" data-mobile-picker value="${escapeAttribute(formatDateTimeLocalValue(eventData.dateTime))}" required>
           <button type="button" class="date-input-shell-button" data-show-picker data-target="manageDateTime" aria-label="Open schedule picker">
             <svg viewBox="0 0 24 24" fill="none">
               <path d="M7 3V6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
@@ -1819,6 +2036,62 @@ function renderEventUrlControl({ url, openHref, copyLabel, openLabel }) {
   `;
 }
 
+function getRsvpResponseSummary(row) {
+  return {
+    name: row['Full Name'] || row['Full Name of Attendee'] || 'Unknown attendee',
+    invitedBy: row['Invited By'] || row['Name of the person who invited you'] || 'Not provided'
+  };
+}
+
+function renderMobileRsvpResponses(columns, rows) {
+  const detailColumns = columns.filter(
+    (column) =>
+      column !== 'Full Name' &&
+      column !== 'Full Name of Attendee' &&
+      column !== 'Invited By' &&
+      column !== 'Name of the person who invited you'
+  );
+
+  return `
+    <div class="mobile-rsvp-response-list" aria-label="Mobile RSVP response list">
+      ${rows
+        .map((row, index) => {
+          const summary = getRsvpResponseSummary(row);
+
+          return `
+            <details class="mobile-rsvp-response-card">
+              <summary>
+                <span class="mobile-rsvp-response-main">
+                  <span class="mobile-rsvp-response-name">${escapeHtml(summary.name)}</span>
+                  <span class="mobile-rsvp-response-invited">Invited by ${escapeHtml(summary.invitedBy)}</span>
+                </span>
+                <span class="mobile-rsvp-response-open" aria-label="Open full details for row ${index + 1}">
+                  <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path d="M4 12C5.8 8.8 8.5 7.2 12 7.2C15.5 7.2 18.2 8.8 20 12C18.2 15.2 15.5 16.8 12 16.8C8.5 16.8 5.8 15.2 4 12Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+                    <path d="M12 14.2C13.2 14.2 14.2 13.2 14.2 12C14.2 10.8 13.2 9.8 12 9.8C10.8 9.8 9.8 10.8 9.8 12C9.8 13.2 10.8 14.2 12 14.2Z" stroke="currentColor" stroke-width="1.8"/>
+                  </svg>
+                </span>
+              </summary>
+              <dl class="mobile-rsvp-response-details">
+                ${detailColumns
+                  .map(
+                    (column) => `
+                      <div>
+                        <dt>${escapeHtml(column)}</dt>
+                        <dd>${escapeHtml(row[column] || '-')}</dd>
+                      </div>
+                    `
+                  )
+                  .join('')}
+              </dl>
+            </details>
+          `;
+        })
+        .join('')}
+    </div>
+  `;
+}
+
 function buildResponsePreviewRows(responses, mode) {
   return responses.slice(0, 3).map((row) => ({
     name: row['Full Name'] || row['Full Name of Attendee'] || 'Unknown attendee',
@@ -1861,6 +2134,7 @@ function renderResponsePreviewList(rows, mode) {
 
 function getVisibleResponseColumns(mode, responses) {
   const hiddenColumns = new Set([
+    '__rowNumber',
     'Timestamp',
     'Event ID',
     'Event Type',
@@ -1877,25 +2151,34 @@ function getVisibleResponseColumns(mode, responses) {
 function renderPublicEventPage(mode, eventData) {
   const isRsvp = mode === 'rsvp';
   const title = isRsvp ? `${eventData.eventType} RSVP` : `${eventData.eventType} Attendance`;
+  const eventDateTime = eventData.displayDateTime || formatMetricDateTime(eventData.dateTime);
+  const availability = eventData.rsvpAvailability || {};
+  const rsvpClosed = isRsvp && availability.canAccept === false;
   const lede = isRsvp
     ? 'Let us know if you can make it so your host can finalize the guest list.'
     : 'Complete the form to confirm your arrival and keep your event record accurate.';
 
   return `
     <div class="page public-page">
-      <div class="public-shell-modern">
+      <div class="public-shell-modern${rsvpClosed ? ' is-rsvp-closed' : ''}">
         <section class="public-hero-panel">
           <div class="public-hero-copy">
-            <h1>${escapeHtml(title)}</h1>
+            <h1 data-dynamic-title>${escapeHtml(title)}</h1>
             <p class="lede">${escapeHtml(lede)}</p>
           </div>
           <div class="public-hero-gallery">
             <div class="public-slideshow-frame">
+              ${
+                isRsvp && !rsvpClosed
+                  ? '<img class="public-slideshow-mark" src="/assets/logo/Genesys_Logo2.svg" alt="">'
+                  : ''
+              }
               <img id="publicHeroSlideshowImage" class="public-slideshow-image" src="${publicCelaviveSlides[0]}" alt="Celavive event gallery">
               <div class="public-slideshow-overlay">
                 <div class="public-slideshow-copy">
                   <span>${escapeHtml(isRsvp ? 'A luminous evening of beauty and connection' : 'A graceful welcome to your event arrival')}</span>
                   <strong>${escapeHtml(eventData.location)}</strong>
+                  <em>${escapeHtml(eventDateTime)}</em>
                 </div>
                 <div id="publicHeroSlideshowDots" class="public-slideshow-dots" aria-hidden="true"></div>
               </div>
@@ -1904,26 +2187,56 @@ function renderPublicEventPage(mode, eventData) {
         </section>
 
         <section class="public-form-shell">
-          <div class="form-card public-form-card">
-            <div class="panel-head">
-              <span class="section-kicker">Submission</span>
-              <h2>${escapeHtml(isRsvp ? 'Confirm your attendance' : 'Register your attendance details')}</h2>
-              <p>${escapeHtml(isRsvp ? 'Reply once so your host can prepare seating, refreshments, and follow-up reminders.' : 'We only ask for the details needed to verify entry and save your attendance in the event sheet.')}</p>
-            </div>
-
-            <form id="publicEventForm" class="modern-form">
-              ${isRsvp ? renderRsvpFields() : renderAttendanceFields()}
-              <div class="form-submit-row">
-                <button type="submit">${isRsvp ? 'Confirm RSVP' : 'Save Attendance'}</button>
-                <div id="publicFormStatus" class="status" aria-live="polite"></div>
-              </div>
-            </form>
-
-            <div class="footer-note">
-              Your response will be saved to this event&apos;s dedicated Google Sheet tab.
-            </div>
-          </div>
+          ${rsvpClosed ? renderPublicRsvpClosedCard(eventData, availability) : renderPublicFormCard(isRsvp)}
         </section>
+      </div>
+    </div>
+  `;
+}
+
+function renderPublicFormCard(isRsvp) {
+  return `
+    <div class="form-card public-form-card">
+      <div class="panel-head">
+        <span class="section-kicker">Submission</span>
+        <h2>${escapeHtml(isRsvp ? 'Confirm your attendance' : 'Register your attendance details')}</h2>
+        <p>${escapeHtml(isRsvp ? 'Reply once so your host can prepare seating, refreshments, and follow-up reminders.' : 'We only ask for the details needed to verify entry and save your attendance in the event sheet.')}</p>
+      </div>
+
+      <form id="publicEventForm" class="modern-form">
+        ${isRsvp ? renderRsvpFields() : renderAttendanceFields()}
+        <div class="form-submit-row">
+          <button type="submit">${isRsvp ? 'Confirm RSVP' : 'Save Attendance'}</button>
+          <div id="publicFormStatus" class="status" aria-live="polite"></div>
+        </div>
+      </form>
+
+      <div class="footer-note">
+        Your response will be saved to this event&apos;s dedicated Google Sheet tab.
+      </div>
+    </div>
+  `;
+}
+
+function renderPublicRsvpClosedCard(eventData, availability) {
+  const isFull = availability && availability.reason === 'full';
+  const titleHtml = isFull
+    ? '<span class="public-closed-title-line">This schedule is</span><span class="public-closed-title-line">fully reserved</span>'
+    : '<span class="public-closed-title-line">RSVP is not accepting</span><span class="public-closed-title-line">responses right now</span>';
+
+  return `
+    <div class="form-card public-form-card public-closed-card">
+      <div class="public-closed-mark" aria-hidden="true">
+        <img src="/assets/logo/Genesys_Logo2.svg" alt="">
+      </div>
+      <span class="section-kicker">${isFull ? 'RSVP list full' : 'RSVP paused'}</span>
+      <h2>${titleHtml}</h2>
+      <p>
+        Thank you for your interest in ${escapeHtml(eventData.eventType)}. Please contact your host for the next available schedule.
+      </p>
+      <div class="public-closed-event">
+        <strong>${escapeHtml(eventData.location)}</strong>
+        <span>${escapeHtml(eventData.displayDateTime || formatMetricDateTime(eventData.dateTime))}</span>
       </div>
     </div>
   `;
@@ -1977,7 +2290,7 @@ function renderAttendanceFields() {
       <div class="field">
         <label for="birthday">Birthday <span class="required">*</span></label>
         <div class="date-input-shell">
-          <input id="birthday" name="birthday" type="date" required>
+          <input id="birthday" name="birthday" type="date" data-mobile-picker required>
           <button type="button" class="date-input-shell-button" data-show-picker data-target="birthday" aria-label="Open birthday picker">
             <svg viewBox="0 0 24 24" fill="none">
               <path d="M7 3V6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
@@ -2023,12 +2336,13 @@ function renderAdminFrame({
   headerControls = '',
   content
 }) {
+  const hasEventHeader = headerDetails.includes('event-header-schedule-form');
   return `
     <div class="admin-page">
       <div class="admin-app-shell">
         ${renderAdminSidebar(activeView, user, eventCount)}
         <div class="admin-main">
-          <header class="admin-header-modern">
+          <header class="admin-header-modern${hasEventHeader ? ' admin-header-modern-event' : ''}">
             <div class="admin-header-main${headerDetails ? ' has-details' : ''}">
               <div class="admin-header-copy">
                 <span class="section-kicker">${escapeHtml(badge || 'Event admin')}</span>
@@ -2147,7 +2461,7 @@ function renderAdminSidebar(activeView, user, eventCount) {
               <span class="sidebar-avatar">${escapeHtml(initials)}</span>
               <span class="profile-trigger-icon" aria-hidden="true">
                 <svg viewBox="0 0 24 24" fill="none">
-                  <path d="M7 10L12 15L17 10" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+                  <path d="M15 6L9 12L15 18" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
                 </svg>
               </span>
             </span>
@@ -2173,13 +2487,21 @@ function renderAdminSidebar(activeView, user, eventCount) {
                 </span>
                 <span class="profile-action-label">Log out</span>
               </button>
+              <button type="button" class="profile-popover-action profile-popover-back-action" data-profile-back title="Back" aria-label="Back to profile menu">
+                <span class="profile-action-icon">
+                  <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path d="M9.5 7L14.5 12L9.5 17" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                </span>
+                <span class="profile-action-label">Back</span>
+              </button>
             </div>
             <div class="profile-password-panel">
               <div class="profile-password-head">
                 <strong>Change password</strong>
                 <button type="button" class="profile-back-button" data-profile-back aria-label="Back to profile menu">
                   <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                    <path d="M14.5 17L9.5 12L14.5 7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M8 14L12 10L16 14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
                   </svg>
                 </button>
               </div>
@@ -2187,7 +2509,6 @@ function renderAdminSidebar(activeView, user, eventCount) {
                 <div class="field">
                   <label for="currentPassword">Current password</label>
                   <div class="password-input-wrap profile-password-input-wrap">
-                    <input id="currentPassword" name="currentPassword" type="password" autocomplete="current-password" required>
                     <button
                       type="button"
                       class="password-toggle profile-password-toggle"
@@ -2206,12 +2527,12 @@ function renderAdminSidebar(activeView, user, eventCount) {
                         <path d="M14.1 14.3C13.6 14.8 12.8 15.1 12 15.1C10.3 15.1 8.9 13.7 8.9 12C8.9 11.2 9.2 10.4 9.7 9.9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
                       </svg>
                     </button>
+                    <input id="currentPassword" name="currentPassword" type="password" autocomplete="current-password" required>
                   </div>
                 </div>
                 <div class="field">
                   <label for="newPassword">New password</label>
                   <div class="password-input-wrap profile-password-input-wrap">
-                    <input id="newPassword" name="newPassword" type="password" autocomplete="new-password" required>
                     <button
                       type="button"
                       class="password-toggle profile-password-toggle"
@@ -2230,12 +2551,12 @@ function renderAdminSidebar(activeView, user, eventCount) {
                         <path d="M14.1 14.3C13.6 14.8 12.8 15.1 12 15.1C10.3 15.1 8.9 13.7 8.9 12C8.9 11.2 9.2 10.4 9.7 9.9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
                       </svg>
                     </button>
+                    <input id="newPassword" name="newPassword" type="password" autocomplete="new-password" required>
                   </div>
                 </div>
                 <div class="field">
                   <label for="confirmPassword">Confirm password</label>
                   <div class="password-input-wrap profile-password-input-wrap">
-                    <input id="confirmPassword" name="confirmPassword" type="password" autocomplete="new-password" required>
                     <button
                       type="button"
                       class="password-toggle profile-password-toggle"
@@ -2254,6 +2575,7 @@ function renderAdminSidebar(activeView, user, eventCount) {
                         <path d="M14.1 14.3C13.6 14.8 12.8 15.1 12 15.1C10.3 15.1 8.9 13.7 8.9 12C8.9 11.2 9.2 10.4 9.7 9.9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
                       </svg>
                     </button>
+                    <input id="confirmPassword" name="confirmPassword" type="password" autocomplete="new-password" required>
                   </div>
                 </div>
                 <div id="changePasswordStatus" class="status" aria-live="polite"></div>
@@ -2346,17 +2668,28 @@ function renderSelectedEventQuickPanel(eventData) {
       <span class="section-kicker">Selected event</span>
       <div class="selected-event-summary">
         <strong>${escapeHtml(eventData.eventType)}</strong>
-        <p>${escapeHtml(eventData.eventLabel)}</p>
       </div>
       <div class="selected-event-facts">
         <span>${escapeHtml(eventData.displayDateTime)}</span>
         <span>${escapeHtml(eventData.location)}</span>
       </div>
       <div class="selected-event-actions">
-        <a href="${escapeAttribute(eventData.rsvpPath)}" target="_blank" rel="noreferrer" class="button-link button-link-secondary">Open RSVP</a>
-        <a href="${escapeAttribute(eventData.attendancePath)}" target="_blank" rel="noreferrer" class="button-link button-link-secondary">Open Attendance</a>
-        <a href="/events/${encodeURIComponent(eventData.eventId)}/rsvp-responses" data-link class="button-link button-link-secondary">View RSVP Responses</a>
-        <a href="/events/${encodeURIComponent(eventData.eventId)}/attendance-responses" data-link class="button-link button-link-secondary">View Attendance Responses</a>
+        <a href="${escapeAttribute(eventData.rsvpPath)}" target="_blank" rel="noreferrer" class="button-link button-link-secondary selected-event-action-rsvp-open">
+          <span class="selected-event-action-icon">${renderEventActionIcon('external')}</span>
+          <span>Open RSVP</span>
+        </a>
+        <a href="${escapeAttribute(eventData.attendancePath)}" target="_blank" rel="noreferrer" class="button-link button-link-secondary selected-event-action-attendance-open">
+          <span class="selected-event-action-icon">${renderEventActionIcon('external')}</span>
+          <span>Open Attendance</span>
+        </a>
+        <a href="/events/${encodeURIComponent(eventData.eventId)}/rsvp-responses" data-link class="button-link button-link-secondary selected-event-action-rsvp-responses">
+          <span class="selected-event-action-icon">${renderEventActionIcon('responses')}</span>
+          <span>RSVP Responses</span>
+        </a>
+        <a href="/events/${encodeURIComponent(eventData.eventId)}/attendance-responses" data-link class="button-link button-link-secondary selected-event-action-attendance-responses">
+          <span class="selected-event-action-icon">${renderEventActionIcon('responses')}</span>
+          <span>Attendance Responses</span>
+        </a>
       </div>
     </div>
   `;
@@ -2908,19 +3241,35 @@ function syncDynamicHeaderTitle() {
   }
 
   const fitTitle = () => {
-    const container = title.closest('.admin-header-main') || title.closest('.admin-header-copy');
+    const publicTitle = title.closest('.public-hero-copy');
+    const container = title.closest('.admin-header-main') || title.closest('.admin-header-copy') || publicTitle;
+    const mobileEventHeader = title.closest('.admin-header-modern-event');
 
     if (!container) {
       return;
     }
 
-    const maxSize = window.innerWidth <= 920 ? 2.2 : 3.2;
-    const minSize = window.innerWidth <= 920 ? 1 : 1.18;
-    const availableWidth = Math.max(container.clientWidth - 18, 0);
+    if (mobileEventHeader && window.innerWidth <= 720) {
+      title.style.fontSize = '';
+      title.style.maxWidth = '';
+      title.style.whiteSpace = '';
+      return;
+    }
+
+    const isPublicTitle = Boolean(publicTitle);
+
+    const maxSize = isPublicTitle
+      ? (window.innerWidth <= 720 ? 1.9 : (window.innerWidth <= 920 ? 3.1 : 2.8))
+      : (window.innerWidth <= 920 ? 2.2 : 3.2);
+    const minSize = isPublicTitle
+      ? (window.innerWidth <= 360 ? 0.6 : (window.innerWidth <= 720 ? 0.68 : 1.08))
+      : (window.innerWidth <= 920 ? 1 : 1.18);
+    const availableWidth = Math.max(container.clientWidth - (isPublicTitle ? 0 : 18), 0);
     let nextSize = maxSize;
 
     title.style.fontSize = `${maxSize}rem`;
     title.style.maxWidth = `${availableWidth}px`;
+    title.style.whiteSpace = 'nowrap';
 
     while (title.scrollWidth > availableWidth && nextSize > minSize) {
       nextSize = Math.max(minSize, nextSize - 0.05);
