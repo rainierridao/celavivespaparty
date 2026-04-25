@@ -2484,8 +2484,9 @@ function renderAdminSidebar(activeView, user, eventCount) {
               <button type="button" class="profile-popover-action" data-profile-change title="Change password" aria-label="Change password">
                 <span class="profile-action-icon">
                   <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                    <path d="M7 14C8.1 14 9 13.1 9 12C9 10.9 8.1 10 7 10C5.9 10 5 10.9 5 12C5 13.1 5.9 14 7 14Z" stroke="currentColor" stroke-width="1.8"/>
-                    <path d="M9 12H19L21 10V6H15L13 8H9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                    <rect x="5" y="11" width="14" height="9" rx="2.5" stroke="currentColor" stroke-width="1.8"/>
+                    <path d="M8 11V8.5C8 6.57 9.57 5 11.5 5H12.5C14.43 5 16 6.57 16 8.5V11" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                    <path d="M12 14.2V16.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
                   </svg>
                 </span>
                 <span class="profile-action-label">Change password</span>

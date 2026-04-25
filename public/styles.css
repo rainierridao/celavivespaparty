@@ -5278,6 +5278,11 @@ textarea {
   margin: 0;
 }
 
+.profile-popover-action[data-profile-change] .profile-action-icon svg {
+  width: 20px;
+  height: 20px;
+}
+
 .profile-action-label {
   position: absolute;
   width: 1px;
@@ -6020,6 +6025,11 @@ textarea {
   .profile-popover-action svg {
     width: 15px;
     height: 15px;
+  }
+
+  .profile-popover-action[data-profile-change] .profile-action-icon svg {
+    width: 17px;
+    height: 17px;
   }
 
   .profile-popover.is-open .profile-popover-action {
