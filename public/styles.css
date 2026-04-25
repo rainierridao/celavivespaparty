@@ -4787,8 +4787,8 @@ textarea {
   .selected-event-actions .button-link {
     min-height: 42px !important;
     padding: 0 10px !important;
-    gap: 4reduce tpx;
-    font-size: 0.48rem !important;
+    gap: 4px;
+    font-size: 0.56rem !important;
     line-height: 1;
     white-space: normal;
   }
@@ -4797,7 +4797,7 @@ textarea {
     display: -webkit-box;
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 2;
-    max-width: 90px;
+    max-width: 100%;
     overflow: hidden;
     text-align: center;
     line-height: 1.1;
@@ -5518,14 +5518,27 @@ textarea {
 
 .selected-event-actions .button-link {
   min-height: 46px !important;
-  padding: 0 14px !important;
+  padding: 0 12px !important;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 6px;
   text-align: center;
-  font-size: 0.78rem !important;
+  font-size: 0.72rem !important;
+  line-height: 1.05;
+  white-space: normal;
+  overflow: hidden;
+}
+
+.selected-event-actions .button-link span:last-child {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  max-width: 100%;
+  overflow: hidden;
+  text-align: center;
   line-height: 1.1;
+  text-wrap: balance;
 }
 
 .selected-event-action-icon {
