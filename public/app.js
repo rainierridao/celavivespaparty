@@ -2107,10 +2107,11 @@ function renderMobileRsvpResponses(columns, rows) {
 function buildResponsePreviewRows(responses, mode) {
   return responses.slice(0, 3).map((row) => ({
     name: row['Full Name'] || row['Full Name of Attendee'] || 'Unknown attendee',
-    invitedBy:
+    metaLabel: mode === 'rsvp' ? 'Invited by' : 'Profession',
+    metaValue:
       mode === 'rsvp'
         ? row['Invited By'] || row['Name of the person who invited you'] || 'Not provided'
-        : row['Invited By'] || row['Name of the person who invited you'] || 'Not captured'
+        : row['Profession'] || row['Email Address'] || row['Mobile Number'] || 'Attendance registration'
   }));
 }
 
@@ -2134,7 +2135,7 @@ function renderResponsePreviewList(rows, mode) {
             <div class="response-preview-item">
               <span class="response-preview-line">
                 <span class="response-preview-name">${escapeHtml(row.name)}</span>
-                <span class="response-preview-meta">Invited by ${escapeHtml(row.invitedBy)}</span>
+                <span class="response-preview-meta">${escapeHtml(row.metaLabel)} ${escapeHtml(row.metaValue)}</span>
               </span>
             </div>
           `

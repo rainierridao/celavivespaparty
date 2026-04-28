@@ -3516,21 +3516,25 @@ textarea {
 .detail-response-grid-inline .action-card {
   gap: 6px;
   padding: 14px 16px;
+  overflow: hidden;
 }
 
 .detail-response-card-head {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 10px;
 }
 
 .detail-response-grid-inline .action-card strong {
-  font-size: 0.9rem;
+  min-width: 0;
+  font-size: 0.8rem;
+  line-height: 1.2;
 }
 
 .detail-response-count {
   display: inline-flex;
+  flex: 0 0 auto;
   align-items: center;
   justify-content: center;
   min-width: 24px;
@@ -3546,7 +3550,8 @@ textarea {
 }
 
 .detail-response-grid-inline .action-card > span {
-  font-size: 0.72rem;
+  min-width: 0;
+  font-size: 0.66rem;
   line-height: 1.35;
 }
 
@@ -3815,10 +3820,12 @@ textarea {
 
 .response-preview-item {
   display: block;
-  padding: 8px 10px;
+  min-width: 0;
+  padding: 7px 9px;
   border-radius: 12px;
   background: rgba(245, 248, 255, 0.84);
   border: 1px solid rgba(206, 214, 234, 0.7);
+  overflow: hidden;
 }
 
 .response-preview-list.is-empty .response-preview-item {
@@ -3828,7 +3835,7 @@ textarea {
 .response-preview-line {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   min-width: 0;
 }
 
@@ -3836,7 +3843,7 @@ textarea {
   display: inline-block;
   flex: 0 1 auto;
   min-width: 0;
-  font-size: 0.71rem;
+  font-size: 0.6rem;
   font-weight: 700;
   color: var(--software-ink);
   line-height: 1.2;
@@ -3849,7 +3856,7 @@ textarea {
   display: inline-block;
   flex: 1 1 auto;
   min-width: 0;
-  font-size: 0.62rem;
+  font-size: 0.54rem;
   color: var(--software-muted);
   line-height: 1.2;
   white-space: nowrap;
