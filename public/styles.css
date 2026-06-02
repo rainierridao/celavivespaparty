@@ -18,6 +18,151 @@
   --radius-sm: 12px;
 }
 
+.inbody-event-setup {
+  padding: 18px;
+  border: 1px solid rgba(188, 202, 226, 0.9);
+  border-radius: 8px;
+  background: #f8fbff;
+}
+
+.inbody-event-setup[hidden] {
+  display: none !important;
+}
+
+.inbody-setup-head,
+.inbody-slot-builder-head,
+.inbody-reschedule-panel .workspace-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.inbody-setup-head h3,
+.inbody-slot-builder-head strong {
+  margin: 0;
+  color: #18213a;
+}
+
+.inbody-slot-builder {
+  display: grid;
+  gap: 14px;
+  margin-top: 16px;
+}
+
+.inbody-slot-builder[hidden] {
+  display: none !important;
+}
+
+.inbody-slot-rows,
+.inbody-reschedule-list {
+  display: grid;
+  gap: 12px;
+}
+
+.inbody-slot-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px 20px;
+  align-items: end;
+  padding: 58px 24px 24px;
+  border: 1px solid rgba(202, 213, 232, 0.92);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.inbody-reschedule-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+  align-items: end;
+  padding: 12px;
+  border: 1px solid rgba(202, 213, 232, 0.92);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.inbody-slot-row .field {
+  margin: 0;
+}
+
+.inbody-slot-remove {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 40px;
+  min-width: 40px;
+  height: 40px;
+  min-height: 40px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  box-shadow: none;
+  color: #111827;
+}
+
+.inbody-slot-remove svg {
+  width: 19px;
+  height: 19px;
+  flex: 0 0 auto;
+}
+
+.inbody-reschedule-panel {
+  display: grid;
+  gap: 14px;
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid rgba(203, 213, 225, 0.9);
+}
+
+.inbody-reschedule-row {
+  grid-template-columns: minmax(180px, 1fr) minmax(180px, 1.2fr) auto minmax(140px, 0.8fr);
+  align-items: center;
+}
+
+.inbody-reschedule-row strong,
+.inbody-reschedule-row span {
+  display: block;
+}
+
+.inbody-reschedule-row span {
+  margin-top: 3px;
+  color: #64708b;
+  font-size: 0.88rem;
+}
+
+.inbody-reschedule-row select {
+  min-height: 44px;
+}
+
+@media (max-width: 900px) {
+  .inbody-slot-row,
+  .inbody-reschedule-row {
+    grid-template-columns: 1fr;
+  }
+
+  .inbody-slot-row {
+    padding: 58px 24px 24px;
+  }
+
+  .inbody-slot-remove {
+    position: absolute;
+    width: 40px;
+    min-width: 40px;
+    height: 40px;
+    min-height: 40px;
+  }
+
+  .inbody-reschedule-row button {
+    width: 100%;
+  }
+}
+
 * {
   box-sizing: border-box;
 }

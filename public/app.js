@@ -1,4 +1,8 @@
 const app = document.getElementById('app');
+const INBODY_EVENT_TYPE = 'Wellness Assessment';
+const LEGACY_INBODY_EVENT_TYPE = 'Free InBody Assessment';
+const INBODY_EVENT_DISPLAY_LABEL = 'Free Wellness Assessment';
+const INBODY_EVENT_TYPES = [INBODY_EVENT_TYPE, LEGACY_INBODY_EVENT_TYPE];
 const apiBaseCandidates =
   window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost'
     ? ['/api', '/.netlify/functions/api']
@@ -21,6 +25,12 @@ const publicCelaviveSlides = [
   '/assets/celavive/539562242_804686085244801_8541968841010466011_n.jpg',
   '/assets/celavive/557640135_837039312009478_6143742350851462938_n.jpg',
   '/assets/celavive/584341713_873201568393252_5485360468649937889_n.jpg'
+];
+const publicInBodySlides = [
+  '/assets/inbody/b-y-g-SaN6XB1DrJk-unsplash.jpg',
+  '/assets/inbody/gabin-vallet-J154nEkpzlQ-unsplash.jpg',
+  '/assets/inbody/jared-rice-xce530fBHrk-unsplash.jpg',
+  '/assets/inbody/mariana-medvedeva-usfIE5Yc7PY-unsplash.jpg'
 ];
 
 const state = {
@@ -54,7 +64,7 @@ async function loadConfig() {
   } catch (error) {
     state.config = {
       eventName: 'Celavive Spa Party',
-      eventTypes: ['OPP', 'Celavive Spa Party'],
+      eventTypes: ['OPP', 'Celavive Spa Party', INBODY_EVENT_TYPE],
       professions: [],
       googleSheetsConfigured: false
     };
@@ -220,14 +230,47 @@ async function renderRoute() {
         fetchJson(`/events/${eventId}/rsvp-responses`),
         fetchJson(`/events/${eventId}/attendance-responses`)
       ]);
+      const inBodyResult = isInBodyEvent(eventResult.event)
+        ? await fetchJson(`/events/${eventId}/inbody-responses`)
+        : { responses: [] };
       renderPage(renderEventDetailPage(eventResult.event, {
         rsvpResponses: rsvpResult.responses || [],
-        attendanceResponses: attendanceResult.responses || []
+        attendanceResponses: attendanceResult.responses || [],
+        inBodyResponses: inBodyResult.responses || []
       }));
       attachAdminShellHandlers();
       attachEventDetailHandlers(eventResult.event);
     } catch (error) {
       renderPage(renderErrorPage('Unable to load that event.', error.message));
+    }
+
+    return;
+  }
+
+  const inBodyResponseMatch = pathname.match(/^\/events\/([^/]+)\/inbody-responses$/);
+
+  if (inBodyResponseMatch) {
+    if (!(await guardAuthenticated())) {
+      return;
+    }
+
+    renderLoading('Loading InBody responses...', {
+      admin: {
+        activeView: 'dashboard',
+        title: 'Loading InBody responses',
+        subtitle: 'Preparing assessment entries and bookings for review.',
+        badge: 'Responses'
+      }
+    });
+    attachAdminShellHandlers();
+
+    try {
+      const result = await fetchJson(`/events/${inBodyResponseMatch[1]}/inbody-responses`);
+      renderPage(renderResponsesPage('InBody Responses', result.event, result.responses, 'inbody'));
+      attachAdminShellHandlers();
+      attachInBodyResponseHandlers(result.event);
+    } catch (error) {
+      renderPage(renderErrorPage('Unable to load InBody responses.', error.message));
     }
 
     return;
@@ -320,6 +363,30 @@ async function renderRoute() {
       attachAttendanceHandlers(result.event);
     } catch (error) {
       renderPage(renderErrorPage('Unable to load that attendance page.', error.message));
+    }
+
+    return;
+  }
+
+  const inBodyMatch = pathname.match(/^\/inbody\/([^/]+)$/);
+
+  if (inBodyMatch) {
+    renderLoading('Loading wellness assessment form...');
+
+    try {
+      const result = await fetchJson(`/public-events/${inBodyMatch[1]}`);
+
+      if (!isInBodyEvent(result.event)) {
+        renderPage(renderErrorPage('InBody page unavailable.', 'This event does not have a Wellness Assessment workflow.'));
+        return;
+      }
+
+      renderPage(renderPublicInBodyPage(result.event));
+      attachPublicShowcase();
+      syncDynamicHeaderTitle();
+      attachInBodyHandlers(result.event);
+    } catch (error) {
+      renderPage(renderErrorPage('Unable to load that InBody page.', error.message));
     }
 
     return;
@@ -757,11 +824,96 @@ function attachAdminShellHandlers() {
 
 function attachCreateEventHandlers() {
   const form = document.getElementById('eventForm');
+  const eventTypeInput = form.querySelector('#eventType');
+  const inBodySetup = document.getElementById('inBodyEventSetup');
+  const inBodyModeInput = document.getElementById('inBodyMode');
+  const inBodySlotBuilder = document.getElementById('inBodySlotBuilder');
+  const inBodySlotRows = document.getElementById('inBodySlotRows');
+  const addInBodySlotButton = form.querySelector('[data-add-inbody-slot]');
+
+  const syncInBodySetup = () => {
+    const isInBody = eventTypeInput && isInBodyEvent({ eventType: eventTypeInput.value });
+    const isBooking = isInBody && inBodyModeInput && inBodyModeInput.value === 'booking';
+
+    if (inBodySetup) {
+      inBodySetup.hidden = !isInBody;
+    }
+
+    if (!isInBody && inBodyModeInput) {
+      inBodyModeInput.value = 'raffle';
+    }
+
+    if (inBodySlotBuilder) {
+      inBodySlotBuilder.hidden = !isBooking;
+    }
+
+    if (inBodySlotRows) {
+      if (isBooking && !inBodySlotRows.querySelector('[data-inbody-slot-row]')) {
+        inBodySlotRows.insertAdjacentHTML('beforeend', renderInBodySlotRow());
+      }
+
+      if (!isBooking) {
+        inBodySlotRows.innerHTML = '';
+      }
+    }
+  };
+
+  if (eventTypeInput) {
+    eventTypeInput.addEventListener('change', syncInBodySetup);
+  }
+
+  if (inBodyModeInput) {
+    inBodyModeInput.addEventListener('change', syncInBodySetup);
+  }
+
+  if (addInBodySlotButton && inBodySlotRows) {
+    addInBodySlotButton.addEventListener('click', () => {
+      if (inBodySlotBuilder && inBodySlotBuilder.hidden) {
+        return;
+      }
+
+      inBodySlotRows.insertAdjacentHTML('beforeend', renderInBodySlotRow());
+    });
+  }
+
+  if (inBodySlotRows) {
+    inBodySlotRows.addEventListener('click', (event) => {
+      const removeButton = event.target.closest('[data-remove-inbody-slot]');
+
+      if (!removeButton) {
+        return;
+      }
+
+      const rows = Array.from(inBodySlotRows.querySelectorAll('[data-inbody-slot-row]'));
+
+      if (rows.length <= 1) {
+        rows[0].querySelectorAll('input').forEach((input) => {
+          input.value = input.name === 'inBodySlotCapacity' ? '1' : '';
+        });
+        return;
+      }
+
+      removeButton.closest('[data-inbody-slot-row]').remove();
+    });
+  }
+
+  syncInBodySetup();
 
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
     const submitButton = form.querySelector('button[type="submit"]');
     const status = document.getElementById('eventStatus');
+    const isInBody = isInBodyEvent({ eventType: form.eventType.value });
+    const body = {
+      eventType: form.eventType.value,
+      location: form.location.value,
+      dateTime: form.dateTime.value
+    };
+
+    if (isInBody) {
+      body.inBodyMode = form.inBodyMode.value;
+      body.inBodySlots = body.inBodyMode === 'booking' ? collectInBodySlotRows(form) : [];
+    }
 
     setStatus(status, '', '');
 
@@ -769,11 +921,7 @@ function attachCreateEventHandlers() {
       setButtonLoading(submitButton, true, 'Creating event...');
       const result = await fetchJson('/events', {
         method: 'POST',
-        body: {
-          eventType: form.eventType.value,
-          location: form.location.value,
-          dateTime: form.dateTime.value
-        }
+        body
       });
 
       navigate(`/events/${result.event.eventId}`, true);
@@ -785,11 +933,24 @@ function attachCreateEventHandlers() {
   });
 }
 
+function collectInBodySlotRows(form) {
+  return Array.from(form.querySelectorAll('[data-inbody-slot-row]')).map((row) => ({
+    date: row.querySelector('[name="inBodySlotDate"]').value,
+    endDate: row.querySelector('[name="inBodySlotEndDate"]').value,
+    startTime: row.querySelector('[name="inBodySlotStart"]').value,
+    endTime: row.querySelector('[name="inBodySlotEnd"]').value,
+    capacity: row.querySelector('[name="inBodySlotCapacity"]').value
+  }));
+}
+
 function attachEventDetailHandlers(eventData) {
   syncDynamicHeaderTitle();
   const qrImage = document.getElementById('qrImage');
   const qrOpenLink = document.getElementById('qrOpenLink');
+  const inBodyQrImage = document.getElementById('inBodyQrImage');
+  const inBodyQrOpenLink = document.getElementById('inBodyQrOpenLink');
   const rsvpUrl = `${window.location.origin}${eventData.rsvpPath}`;
+  const inBodyUrl = eventData.inBodyPath ? `${window.location.origin}${eventData.inBodyPath}` : '';
 
   if (qrImage) {
     qrImage.src = buildQrUrl(rsvpUrl);
@@ -801,6 +962,19 @@ function attachEventDetailHandlers(eventData) {
     qrOpenLink.addEventListener('click', (event) => {
       event.preventDefault();
       openBrandedQrTab(eventData, rsvpUrl);
+    });
+  }
+
+  if (inBodyQrImage && inBodyUrl) {
+    inBodyQrImage.src = buildQrUrl(inBodyUrl);
+    inBodyQrImage.alt = `Branded QR code for ${eventData.eventLabel} InBody`;
+  }
+
+  if (inBodyQrOpenLink && inBodyUrl) {
+    inBodyQrOpenLink.href = buildQrUrl(inBodyUrl);
+    inBodyQrOpenLink.addEventListener('click', (event) => {
+      event.preventDefault();
+      openBrandedQrTab({ ...eventData, eventLabel: `${eventData.eventLabel} InBody` }, inBodyUrl);
     });
   }
 
@@ -841,6 +1015,7 @@ function attachEventDetailHandlers(eventData) {
   const scheduleForm = document.getElementById('eventScheduleForm');
   const archiveButton = document.getElementById('toggleArchiveEventButton');
   const deleteButton = document.getElementById('deleteEventButton');
+  const inBodyAcceptingButton = document.getElementById('toggleInBodyAcceptingButton');
   const rsvpSettingsButton = document.getElementById('openRsvpSettingsButton');
   const rsvpSettingsModal = document.getElementById('rsvpSettingsModal');
   const rsvpSettingsForm = document.getElementById('rsvpSettingsForm');
@@ -931,6 +1106,32 @@ function attachEventDetailHandlers(eventData) {
         setStatus(managementStatus, error.message, 'is-error');
       } finally {
         setButtonLoading(submitButton, false, 'Update Date');
+      }
+    });
+  }
+
+  if (inBodyAcceptingButton) {
+    inBodyAcceptingButton.addEventListener('click', async () => {
+      const nextAccepting = inBodyAcceptingButton.getAttribute('data-next-accepting') === 'true';
+
+      setStatus(managementStatus, '', '');
+
+      try {
+        setButtonLoading(inBodyAcceptingButton, true, nextAccepting ? 'Unlocking...' : 'Locking...');
+        const result = await fetchJson(`/events/${eventData.eventId}`, {
+          method: 'PATCH',
+          body: {
+            action: 'inbody-settings',
+            inBodyAccepting: nextAccepting
+          }
+        });
+
+        setStatus(managementStatus, result.message, 'is-success');
+        navigate(`/events/${encodeURIComponent(result.event.eventId)}`, true);
+      } catch (error) {
+        setStatus(managementStatus, error.message, 'is-error');
+      } finally {
+        setButtonLoading(inBodyAcceptingButton, false, nextAccepting ? 'Unlock Sign-ups' : 'Lock Sign-ups');
       }
     });
   }
@@ -1093,11 +1294,80 @@ function attachAttendanceHandlers(eventData) {
   });
 }
 
+function attachInBodyHandlers(eventData) {
+  const form = document.getElementById('publicInBodyForm');
+
+  if (!form) {
+    return;
+  }
+
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const status = document.getElementById('publicFormStatus');
+    const submitButton = form.querySelector('button[type="submit"]');
+
+    setStatus(status, '', '');
+
+    try {
+      setButtonLoading(submitButton, true, eventData.inBodyMode === 'booking' ? 'Booking...' : 'Submitting...');
+      const result = await fetchJson(`/events/${eventData.eventId}/inbody`, {
+        method: 'POST',
+        body: {
+          fullName: form.fullName.value,
+          emailAddress: form.emailAddress.value,
+          mobileNumber: form.mobileNumber.value,
+          profession: form.profession.value,
+          invitedBy: form.invitedBy.value,
+          slotId: form.slotId ? form.slotId.value : ''
+        }
+      });
+
+      form.reset();
+      setStatus(status, result.message, 'is-success');
+    } catch (error) {
+      setStatus(status, error.message, 'is-error');
+    } finally {
+      setButtonLoading(submitButton, false, eventData.inBodyMode === 'booking' ? 'Book Assessment' : 'Submit Entry');
+    }
+  });
+}
+
+function attachInBodyResponseHandlers(eventData) {
+  document.querySelectorAll('[data-inbody-reschedule-form]').forEach((form) => {
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const rowNumber = form.getAttribute('data-row-number');
+      const status = form.querySelector('.status');
+      const submitButton = form.querySelector('button[type="submit"]');
+
+      setStatus(status, '', '');
+
+      try {
+        setButtonLoading(submitButton, true, 'Updating...');
+        const result = await fetchJson(`/events/${eventData.eventId}/inbody-responses/${rowNumber}`, {
+          method: 'PATCH',
+          body: {
+            slotId: form.slotId.value
+          }
+        });
+
+        setStatus(status, result.message, 'is-success');
+        window.setTimeout(() => navigate(`/events/${encodeURIComponent(eventData.eventId)}/inbody-responses`, true), 450);
+      } catch (error) {
+        setStatus(status, error.message, 'is-error');
+      } finally {
+        setButtonLoading(submitButton, false, 'Update Slot');
+      }
+    });
+  });
+}
+
 function attachPublicShowcase() {
   const image = document.getElementById('publicHeroSlideshowImage');
   const dots = document.getElementById('publicHeroSlideshowDots');
+  const slides = image && image.dataset.slideshow === 'inbody' ? publicInBodySlides : publicCelaviveSlides;
 
-  if (!image || !dots || !publicCelaviveSlides.length) {
+  if (!image || !dots || !slides.length) {
     return;
   }
 
@@ -1106,14 +1376,14 @@ function attachPublicShowcase() {
     state.publicSlideshowTimer = null;
   }
 
-  dots.innerHTML = publicCelaviveSlides
+  dots.innerHTML = slides
     .map((_, index) => `<span class="public-slideshow-dot${index === 0 ? ' is-active' : ''}"></span>`)
     .join('');
 
   const dotElements = [...dots.querySelectorAll('.public-slideshow-dot')];
   let currentIndex = 0;
 
-  image.src = publicCelaviveSlides[0];
+  image.src = slides[0];
   image.classList.add('is-visible');
 
   const staticMobileClosedHero =
@@ -1129,7 +1399,7 @@ function attachPublicShowcase() {
     image.classList.remove('is-visible');
 
     window.setTimeout(() => {
-      image.src = publicCelaviveSlides[currentIndex];
+      image.src = slides[currentIndex];
       image.classList.add('is-visible');
       dotElements.forEach((dot, dotIndex) => {
         dot.classList.toggle('is-active', dotIndex === currentIndex);
@@ -1138,7 +1408,7 @@ function attachPublicShowcase() {
   };
 
   state.publicSlideshowTimer = window.setInterval(() => {
-    currentIndex = (currentIndex + 1) % publicCelaviveSlides.length;
+    currentIndex = (currentIndex + 1) % slides.length;
     syncSlides();
   }, 3400);
 }
@@ -1661,7 +1931,7 @@ function renderCreateEventPage() {
                 <label for="eventType">Event Type <span class="required">*</span></label>
                 <select id="eventType" name="eventType" required>
                   <option value="">Select event type</option>
-                  ${state.config.eventTypes.map((type) => `<option value="${escapeAttribute(type)}">${escapeHtml(type)}</option>`).join('')}
+                  ${state.config.eventTypes.map((type) => `<option value="${escapeAttribute(type)}">${escapeHtml(getEventTypeDisplayLabel(type))}</option>`).join('')}
                 </select>
               </div>
               <div class="field">
@@ -1682,6 +1952,30 @@ function renderCreateEventPage() {
             <div class="field full">
               <label for="location">Location <span class="required">*</span></label>
               <textarea id="location" name="location" placeholder="Boardroom 3, 8th Floor, Mallberry Suites, Cagayan de Oro City" required></textarea>
+            </div>
+            <div id="inBodyEventSetup" class="field full inbody-event-setup" hidden>
+              <div class="inbody-setup-head">
+                <div>
+                  <span class="section-kicker">InBody workflow</span>
+                  <h3>Wellness Assessment setup</h3>
+                </div>
+              </div>
+              <div class="grid">
+                <div class="field full">
+                  <label for="inBodyMode">QR Workflow</label>
+                  <select id="inBodyMode" name="inBodyMode">
+                    <option value="raffle">Raffle Entry</option>
+                    <option value="booking">Open Booking</option>
+                  </select>
+                </div>
+              </div>
+              <div id="inBodySlotBuilder" class="inbody-slot-builder" hidden>
+                <div class="inbody-slot-builder-head">
+                  <strong>Bookable schedules</strong>
+                  <button type="button" class="button-link button-link-secondary" data-add-inbody-slot>Add Slot</button>
+                </div>
+                <div id="inBodySlotRows" class="inbody-slot-rows"></div>
+              </div>
             </div>
             <div class="form-submit-row">
               <button type="submit">Create Event</button>
@@ -1704,13 +1998,51 @@ function renderCreateEventPage() {
   });
 }
 
+function renderInBodySlotRow(slot = {}) {
+  return `
+    <div class="inbody-slot-row" data-inbody-slot-row>
+      <div class="field">
+        <label>Start Date</label>
+        <input name="inBodySlotDate" type="date" value="${escapeAttribute(slot.date || '')}">
+      </div>
+      <div class="field">
+        <label>End Date</label>
+        <input name="inBodySlotEndDate" type="date" value="${escapeAttribute(slot.endDate || slot.date || '')}">
+      </div>
+      <div class="field">
+        <label>Start Time</label>
+        <input name="inBodySlotStart" type="time" value="${escapeAttribute(slot.startTime || '')}">
+      </div>
+      <div class="field">
+        <label>End Time</label>
+        <input name="inBodySlotEnd" type="time" value="${escapeAttribute(slot.endTime || '')}">
+      </div>
+      <div class="field">
+        <label>Capacity</label>
+        <input name="inBodySlotCapacity" type="number" min="1" step="1" inputmode="numeric" value="${escapeAttribute(slot.capacity || '1')}">
+      </div>
+      <button type="button" class="button-link button-link-secondary inbody-slot-remove" data-remove-inbody-slot aria-label="Remove schedule slot">
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M5 7H19" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+          <path d="M10 11V17" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+          <path d="M14 11V17" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+          <path d="M9 7L9.6 5.6C9.9 4.9 10.5 4.5 11.2 4.5H12.8C13.5 4.5 14.1 4.9 14.4 5.6L15 7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+          <path d="M7.5 7L8.2 19.1C8.3 20 9 20.5 9.9 20.5H14.1C15 20.5 15.7 20 15.8 19.1L16.5 7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+        </svg>
+      </button>
+    </div>
+  `;
+}
+
 function renderEventDetailPage(eventData, previews = {}) {
+  const isInBody = isInBodyEvent(eventData);
   const rsvpUrl = `${window.location.origin}${eventData.rsvpPath}`;
   const attendanceUrl = `${window.location.origin}${eventData.attendancePath}`;
-  const rsvpCount = (previews.rsvpResponses || []).length;
-  const attendanceCount = (previews.attendanceResponses || []).length;
+  const inBodyUrl = eventData.inBodyPath ? `${window.location.origin}${eventData.inBodyPath}` : '';
+  const inBodyCount = (previews.inBodyResponses || []).length;
   const rsvpPreviewRows = buildResponsePreviewRows(previews.rsvpResponses || [], 'rsvp');
   const attendancePreviewRows = buildResponsePreviewRows(previews.attendanceResponses || [], 'attendance');
+  const inBodyPreviewRows = buildResponsePreviewRows(previews.inBodyResponses || [], 'inbody');
 
   return renderAdminFrame({
     activeView: eventData.isArchived ? 'archive' : 'dashboard',
@@ -1721,7 +2053,7 @@ function renderEventDetailPage(eventData, previews = {}) {
       ? 'Review this completed event and its published response history.'
       : 'Share RSVP, capture attendance, and review responses from one event workspace.',
     badge: eventData.isArchived ? eventData.eventType : 'Event',
-    headerDetails: eventData.isArchived ? '' : renderEventHeaderControls(eventData),
+    headerDetails: renderEventHeaderControls(eventData),
     headerControls: renderHeaderBackLink(eventData.isArchived ? '/events/archive' : '/dashboard', eventData.isArchived ? 'Back to archive' : 'Back to dashboard'),
     content: `
       <section class="editor-grid event-detail-layout${eventData.isArchived ? ' is-archived' : ' is-active'}">
@@ -1734,7 +2066,7 @@ function renderEventDetailPage(eventData, previews = {}) {
                 <p>Use the published links below to invite attendees or register them on-site.</p>
               </div>
               ${
-                eventData.isArchived
+                eventData.isArchived || isInBody
                   ? ''
                   : `
                     <button id="openRsvpSettingsButton" type="button" class="button-link button-link-secondary rsvp-settings-open-button">
@@ -1744,63 +2076,148 @@ function renderEventDetailPage(eventData, previews = {}) {
               }
             </div>
             <div class="detail-link-grid">
-              <div class="link-stack modern-link-stack">
-                <label>RSVP Link</label>
-                ${renderEventUrlControl({
-                  url: rsvpUrl,
-                  openHref: eventData.rsvpPath,
-                  copyLabel: 'RSVP link',
-                  openLabel: 'Open RSVP'
-                })}
-              </div>
-              <div class="link-stack modern-link-stack">
-                <label>Attendance Link</label>
-                ${renderEventUrlControl({
-                  url: attendanceUrl,
-                  openHref: eventData.attendancePath,
-                  copyLabel: 'attendance link',
-                  openLabel: 'Open attendance'
-                })}
-              </div>
+              ${
+                isInBody
+                  ? ''
+                  : `
+                    <div class="link-stack modern-link-stack">
+                      <label>RSVP Link</label>
+                      ${renderEventUrlControl({
+                        url: rsvpUrl,
+                        openHref: eventData.rsvpPath,
+                        copyLabel: 'RSVP link',
+                        openLabel: 'Open RSVP'
+                      })}
+                    </div>
+                    <div class="link-stack modern-link-stack">
+                      <label>Attendance Link</label>
+                      ${renderEventUrlControl({
+                        url: attendanceUrl,
+                        openHref: eventData.attendancePath,
+                        copyLabel: 'attendance link',
+                        openLabel: 'Open attendance'
+                      })}
+                    </div>
+                  `
+              }
+              ${
+                isInBody
+                  ? `
+                    <div class="link-stack modern-link-stack">
+                      <label>InBody Link</label>
+                      ${renderEventUrlControl({
+                        url: inBodyUrl,
+                        openHref: eventData.inBodyPath,
+                        copyLabel: 'InBody link',
+                        openLabel: 'Open InBody'
+                      })}
+                    </div>
+                  `
+                  : ''
+              }
             </div>
             <div id="eventActionStatus" class="status event-link-status" aria-live="polite"></div>
             <div class="event-link-grid detail-response-grid detail-response-grid-inline">
-              <a href="/events/${encodeURIComponent(eventData.eventId)}/rsvp-responses" data-link class="action-card action-card-strong">
-                <div class="detail-response-card-head">
-                  <strong>View all RSVP responses</strong>
-                  <span class="detail-response-count">${(previews.rsvpResponses || []).length}</span>
-                </div>
-                <span>Latest 3 confirmations from the RSVP sheet.</span>
-                ${renderResponsePreviewList(rsvpPreviewRows, 'rsvp')}
-              </a>
-              <a href="/events/${encodeURIComponent(eventData.eventId)}/attendance-responses" data-link class="action-card">
-                <div class="detail-response-card-head">
-                  <strong>View all attendance responses</strong>
-                  <span class="detail-response-count">${(previews.attendanceResponses || []).length}</span>
-                </div>
-                <span>Latest 3 registrations from the attendance sheet.</span>
-                ${renderResponsePreviewList(attendancePreviewRows, 'attendance')}
-              </a>
+              ${
+                isInBody
+                  ? ''
+                  : `
+                    <a href="/events/${encodeURIComponent(eventData.eventId)}/rsvp-responses" data-link class="action-card action-card-strong">
+                      <div class="detail-response-card-head">
+                        <strong>View all RSVP responses</strong>
+                        <span class="detail-response-count">${(previews.rsvpResponses || []).length}</span>
+                      </div>
+                      <span>Latest 3 confirmations from the RSVP sheet.</span>
+                      ${renderResponsePreviewList(rsvpPreviewRows, 'rsvp')}
+                    </a>
+                    <a href="/events/${encodeURIComponent(eventData.eventId)}/attendance-responses" data-link class="action-card">
+                      <div class="detail-response-card-head">
+                        <strong>View all attendance responses</strong>
+                        <span class="detail-response-count">${(previews.attendanceResponses || []).length}</span>
+                      </div>
+                      <span>Latest 3 registrations from the attendance sheet.</span>
+                      ${renderResponsePreviewList(attendancePreviewRows, 'attendance')}
+                    </a>
+                  `
+              }
+              ${
+                isInBody
+                  ? `
+                    <a href="/events/${encodeURIComponent(eventData.eventId)}/inbody-responses" data-link class="action-card">
+                      <div class="detail-response-card-head">
+                        <strong>View all InBody responses</strong>
+                        <span class="detail-response-count">${inBodyCount}</span>
+                      </div>
+                      <span>${escapeHtml(eventData.inBodyMode === 'booking' ? 'Latest assessment bookings.' : 'Latest raffle entries.')}</span>
+                      ${renderResponsePreviewList(inBodyPreviewRows, 'inbody')}
+                    </a>
+                  `
+                  : ''
+              }
             </div>
           </section>
         </div>
 
         <aside class="detail-side-stack">
-          <section class="workspace-panel qr-card${eventData.isArchived ? '' : ' qr-card-active'}">
-            <span class="section-kicker">QR access</span>
-            <h3>RSVP QR code</h3>
-            <p>Share this QR with potential attendees so they can confirm attendance quickly.</p>
-            <div class="qr-panel">
-              <div class="qr-image-stack">
-                <img id="qrImage" class="qr-image" alt="RSVP QR code">
-                <img class="qr-brand-mark" src="/assets/logo/Genesys_Logo2.svg" alt="" aria-hidden="true">
-              </div>
-            </div>
-            <a id="qrOpenLink" class="button-link button-link-secondary" target="_blank" rel="noreferrer" href="${escapeAttribute(buildQrUrl(rsvpUrl))}">Open QR in new tab</a>
-          </section>
+          ${
+            isInBody
+              ? ''
+              : `
+                <section class="workspace-panel qr-card${eventData.isArchived ? '' : ' qr-card-active'}">
+                  <span class="section-kicker">QR access</span>
+                  <h3>RSVP QR code</h3>
+                  <p>Share this QR with potential attendees so they can confirm attendance quickly.</p>
+                  <div class="qr-panel">
+                    <div class="qr-image-stack">
+                      <img id="qrImage" class="qr-image" alt="RSVP QR code">
+                      <img class="qr-brand-mark" src="/assets/logo/Genesys_Logo2.svg" alt="" aria-hidden="true">
+                    </div>
+                  </div>
+                  <a id="qrOpenLink" class="button-link button-link-secondary" target="_blank" rel="noreferrer" href="${escapeAttribute(buildQrUrl(rsvpUrl))}">Open QR in new tab</a>
+                </section>
+              `
+          }
+          ${
+            isInBody
+              ? `
+                <section class="workspace-panel qr-card qr-card-active">
+                  <div class="inbody-qr-card-head">
+                    <div>
+                      <span class="section-kicker">InBody QR</span>
+                      <h3>${escapeHtml(eventData.inBodyMode === 'booking' ? 'Booking QR code' : 'Raffle QR code')}</h3>
+                    </div>
+                    <span class="inbody-signup-state ${eventData.inBodyAccepting ? 'is-open' : 'is-locked'}">${eventData.inBodyAccepting ? 'Open' : 'Locked'}</span>
+                  </div>
+                  <p>${escapeHtml(eventData.inBodyAccepting
+                    ? eventData.inBodyMode === 'booking'
+                      ? 'Share this QR so attendees can book an assessment slot.'
+                      : 'Share this QR so attendees can join the InBody raffle entry list.'
+                    : 'The public InBody link is locked and will not accept new sign-ups.')}</p>
+                  <div class="qr-panel">
+                    <div class="qr-image-stack">
+                      <img id="inBodyQrImage" class="qr-image" alt="InBody QR code">
+                      <img class="qr-brand-mark" src="/assets/logo/Genesys_Logo2.svg" alt="" aria-hidden="true">
+                    </div>
+                  </div>
+                  <div class="inbody-qr-actions">
+                    <a id="inBodyQrOpenLink" class="button-link button-link-secondary" target="_blank" rel="noreferrer" href="${escapeAttribute(buildQrUrl(inBodyUrl))}">Open QR in new tab</a>
+                    <button
+                      id="toggleInBodyAcceptingButton"
+                      type="button"
+                      class="button-link button-link-secondary inbody-lock-button ${eventData.inBodyAccepting ? 'is-locked-action' : 'is-open-action'}"
+                      data-next-accepting="${eventData.inBodyAccepting ? 'false' : 'true'}"
+                    >
+                      ${renderLockIcon(eventData.inBodyAccepting ? 'closed' : 'open')}
+                      <span>${eventData.inBodyAccepting ? 'Lock Sign-ups' : 'Unlock Sign-ups'}</span>
+                    </button>
+                  </div>
+                </section>
+              `
+              : ''
+          }
         </aside>
       </section>
-      ${eventData.isArchived ? '' : renderRsvpSettingsModal(eventData)}
+      ${eventData.isArchived || isInBody ? '' : renderRsvpSettingsModal(eventData)}
     `
   });
 }
@@ -1887,17 +2304,66 @@ function renderResponsesPage(title, eventData, responses, mode) {
             ? `
               ${renderTable(columns, responses)}
               ${mode === 'rsvp' ? renderMobileRsvpResponses(columns, responses) : ''}
+              ${mode === 'inbody' && eventData.inBodyMode === 'booking' ? renderInBodyReschedulePanel(eventData, responses) : ''}
             `
             : `
               <div class="empty-state empty-state-modern">
                 <strong>No responses yet.</strong>
-                <span>This event has not collected any ${mode === 'rsvp' ? 'RSVP' : 'attendance'} entries so far.</span>
+                <span>This event has not collected any ${mode === 'rsvp' ? 'RSVP' : mode === 'inbody' ? 'InBody' : 'attendance'} entries so far.</span>
               </div>
             `
         }
       </section>
     `
   });
+}
+
+function renderInBodyReschedulePanel(eventData, responses) {
+  const slots = ((eventData.inBodyAvailability && eventData.inBodyAvailability.slots) || eventData.inBodySlots || []);
+
+  if (!slots.length) {
+    return '';
+  }
+
+  return `
+    <section class="inbody-reschedule-panel">
+      <div class="workspace-heading">
+        <div>
+          <span class="section-kicker">Booking control</span>
+          <h2>Reschedule bookings</h2>
+        </div>
+      </div>
+      <div class="inbody-reschedule-list">
+        ${responses
+          .map((row) => {
+            const rowNumber = row.__rowNumber || '';
+            const currentSlotId = row['Slot ID'] || '';
+
+            return `
+              <form class="inbody-reschedule-row" data-inbody-reschedule-form data-row-number="${escapeAttribute(rowNumber)}">
+                <div>
+                  <strong>${escapeHtml(row['Full Name'] || 'Unknown attendee')}</strong>
+                  <span>${escapeHtml(row['Slot Label'] || 'No slot assigned')}</span>
+                </div>
+                <select name="slotId" required>
+                  ${slots
+                    .map((slot) => {
+                      const disabled = slot.isFull && slot.slotId !== currentSlotId ? ' disabled' : '';
+                      const selected = slot.slotId === currentSlotId ? ' selected' : '';
+                      const suffix = Number.isFinite(slot.remaining) ? ` (${slot.remaining} left)` : '';
+                      return `<option value="${escapeAttribute(slot.slotId)}"${selected}${disabled}>${escapeHtml((slot.label || formatSlotLabel(slot)) + suffix)}</option>`;
+                    })
+                    .join('')}
+                </select>
+                <button type="submit" class="button-link button-link-secondary">Update Slot</button>
+                <div class="status" aria-live="polite"></div>
+              </form>
+            `;
+          })
+          .join('')}
+      </div>
+    </section>
+  `;
 }
 
 function renderHeaderBackLink(href, label) {
@@ -1972,11 +2438,33 @@ function renderEventActionIcon(action) {
   `;
 }
 
+function renderLockIcon(state) {
+  if (state === 'open') {
+    return `
+      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <rect x="5.5" y="10" width="13" height="10" rx="2.4" stroke="currentColor" stroke-width="1.8"/>
+        <path d="M8.5 10V7.5C8.5 5.6 10 4.1 12 4.1C13.4 4.1 14.6 4.9 15.2 6.1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+      </svg>
+    `;
+  }
+
+  return `
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <rect x="5.5" y="10" width="13" height="10" rx="2.4" stroke="currentColor" stroke-width="1.8"/>
+      <path d="M8.5 10V7.5C8.5 5.6 10 4.1 12 4.1C14 4.1 15.5 5.6 15.5 7.5V10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+    </svg>
+  `;
+}
+
 function renderEventHeaderControls(eventData) {
+  const isArchived = Boolean(eventData && eventData.isArchived);
+  const archiveAction = isArchived ? 'unarchive' : 'archive';
+  const archiveLabel = isArchived ? 'Move Active' : 'Archive';
+
   return `
     <form id="eventScheduleForm" class="event-header-schedule-form">
       <div class="event-header-schedule-field">
-        <label for="manageDateTime">Reschedule event</label>
+        <label for="manageDateTime">${isArchived ? 'Update date to reactivate' : 'Reschedule event'}</label>
         <div class="date-input-shell">
           <input id="manageDateTime" name="dateTime" type="datetime-local" data-mobile-picker value="${escapeAttribute(formatDateTimeLocalValue(eventData.dateTime))}" required>
           <button type="button" class="date-input-shell-button" data-show-picker data-target="manageDateTime" aria-label="Open schedule picker">
@@ -1992,16 +2480,16 @@ function renderEventHeaderControls(eventData) {
       <div class="event-header-actions-row">
         <button type="submit" class="event-header-action-button">
           <span class="event-header-action-icon">${renderEventActionIcon('update')}</span>
-          <span>Update</span>
+          <span>${isArchived ? 'Update Date' : 'Update'}</span>
         </button>
         <button
           id="toggleArchiveEventButton"
           type="button"
           class="button-link button-link-secondary event-header-action-button"
-          data-event-action="archive"
+          data-event-action="${archiveAction}"
         >
           <span class="event-header-action-icon">${renderEventActionIcon('archive')}</span>
-          <span>Archive</span>
+          <span>${archiveLabel}</span>
         </button>
         <button id="deleteEventButton" type="button" class="button-link button-link-danger event-header-action-button">
           <span class="event-header-action-icon">${renderEventActionIcon('delete')}</span>
@@ -2107,10 +2595,12 @@ function renderMobileRsvpResponses(columns, rows) {
 function buildResponsePreviewRows(responses, mode) {
   return responses.slice(0, 3).map((row) => ({
     name: row['Full Name'] || row['Full Name of Attendee'] || 'Unknown attendee',
-    metaLabel: mode === 'rsvp' ? 'Invited by' : 'Profession',
+    metaLabel: mode === 'rsvp' ? 'Invited by' : mode === 'inbody' ? 'Slot' : 'Profession',
     metaValue:
       mode === 'rsvp'
         ? row['Invited By'] || row['Name of the person who invited you'] || 'Not provided'
+        : mode === 'inbody'
+          ? row['Slot Label'] || row['Booking Status'] || row['InBody Mode'] || 'InBody response'
         : row['Profession'] || row['Email Address'] || row['Mobile Number'] || 'Attendance registration'
   }));
 }
@@ -2120,7 +2610,7 @@ function renderResponsePreviewList(rows, mode) {
     return `
       <div class="response-preview-list is-empty">
         <div class="response-preview-item">
-          <span class="response-preview-name">No ${mode === 'rsvp' ? 'RSVP' : 'attendance'} responses yet</span>
+          <span class="response-preview-name">No ${mode === 'rsvp' ? 'RSVP' : mode === 'inbody' ? 'InBody' : 'attendance'} responses yet</span>
           <span class="response-preview-meta">Preview appears here once responses come in.</span>
         </div>
       </div>
@@ -2155,7 +2645,7 @@ function getVisibleResponseColumns(mode, responses) {
     'Location',
     'Date Time'
   ]);
-  const fallbackColumns = mode === 'rsvp' ? rsvpColumnFallback() : attendanceColumnFallback();
+  const fallbackColumns = mode === 'rsvp' ? rsvpColumnFallback() : mode === 'inbody' ? inBodyColumnFallback() : attendanceColumnFallback();
   const sourceColumns = responses.length ? Object.keys(responses[0]) : fallbackColumns;
 
   return sourceColumns.filter((column) => !hiddenColumns.has(column));
@@ -2203,6 +2693,108 @@ function renderPublicEventPage(mode, eventData) {
           ${rsvpClosed ? renderPublicRsvpClosedCard(eventData, availability) : renderPublicFormCard(isRsvp)}
         </section>
       </div>
+    </div>
+  `;
+}
+
+function renderPublicInBodyPage(eventData) {
+  const isBooking = eventData.inBodyMode === 'booking';
+  const eventDateTime = eventData.displayDateTime || formatMetricDateTime(eventData.dateTime);
+  const title = isBooking ? 'Wellness Assessment Booking' : 'Wellness Assessment Raffle';
+  const lede = isBooking
+    ? 'Choose your preferred assessment slot and submit your details.'
+    : 'Submit your details as your raffle entry for a wellness assessment.';
+
+  return `
+    <div class="page public-page">
+      <div class="public-shell-modern">
+        <section class="public-hero-panel">
+          <div class="public-hero-copy">
+            <h1 data-dynamic-title>${escapeHtml(title)}</h1>
+            <p class="lede">${escapeHtml(lede)}</p>
+          </div>
+          <div class="public-hero-gallery">
+            <div class="public-slideshow-frame">
+              <img class="public-slideshow-mark" src="/assets/logo/Genesys_Logo2.svg" alt="">
+              <img id="publicHeroSlideshowImage" class="public-slideshow-image" src="${publicInBodySlides[0]}" alt="Wellness assessment gallery" data-slideshow="inbody">
+              <div class="public-slideshow-overlay">
+                <div class="public-slideshow-copy">
+                  <span>${escapeHtml(isBooking ? 'Reserve your wellness scan' : 'Join the assessment raffle')}</span>
+                  <strong>${escapeHtml(eventData.location)}</strong>
+                  <em>${escapeHtml(eventDateTime)}</em>
+                </div>
+                <div id="publicHeroSlideshowDots" class="public-slideshow-dots" aria-hidden="true"></div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="public-form-shell">
+          <div class="form-card public-form-card">
+            <div class="panel-head">
+              <span class="section-kicker">Submission</span>
+              <h2>${escapeHtml(isBooking ? 'Book your assessment' : 'Enter the raffle')}</h2>
+            </div>
+            <form id="publicInBodyForm" class="modern-form">
+              ${renderInBodyFields(eventData)}
+              <div class="form-submit-row">
+                <button type="submit">${isBooking ? 'Book Assessment' : 'Submit Entry'}</button>
+                <div id="publicFormStatus" class="status" aria-live="polite"></div>
+              </div>
+            </form>
+            ${renderPoweredFooter('footer-note auth-legal public-form-powered')}
+          </div>
+        </section>
+      </div>
+    </div>
+  `;
+}
+
+function renderInBodyFields(eventData) {
+  const isBooking = eventData.inBodyMode === 'booking';
+  const slots = (eventData.inBodyAvailability && eventData.inBodyAvailability.slots) || [];
+  const openSlots = slots.filter((slot) => !slot.isFull);
+
+  return `
+    <div class="grid">
+      <div class="field full">
+        <label for="fullName">Full Name of Attendee <span class="required">*</span></label>
+        <input id="fullName" name="fullName" type="text" autocomplete="name" required>
+      </div>
+      <div class="field">
+        <label for="emailAddress">Email Address <span class="required">*</span></label>
+        <input id="emailAddress" name="emailAddress" type="email" autocomplete="email" required>
+      </div>
+      <div class="field">
+        <label for="mobileNumber">Mobile Number <span class="required">*</span></label>
+        <input id="mobileNumber" name="mobileNumber" type="tel" inputmode="numeric" placeholder="09XXXXXXXXX" required>
+      </div>
+      <div class="field">
+        <label for="profession">Profession <span class="required">*</span></label>
+        <select id="profession" name="profession" required>
+          <option value="">Select profession</option>
+          ${renderProfessionOptions()}
+        </select>
+      </div>
+      <div class="field">
+        <label for="invitedBy">Name of the person who invited you <span class="required">*</span></label>
+        <input id="invitedBy" name="invitedBy" type="text" required>
+      </div>
+      ${
+        isBooking
+          ? `
+            <div class="field full">
+              <label for="slotId">Assessment Schedule <span class="required">*</span></label>
+              <select id="slotId" name="slotId" required ${openSlots.length ? '' : 'disabled'}>
+                <option value="">${openSlots.length ? 'Select schedule' : 'No schedules available'}</option>
+                ${openSlots
+                  .map((slot) => `<option value="${escapeAttribute(slot.slotId)}">${escapeHtml((slot.label || formatSlotLabel(slot)) + ` (${slot.remaining} left)`)}</option>`)
+                  .join('')}
+              </select>
+            </div>
+          `
+          : ''
+      }
     </div>
   `;
 }
@@ -2374,6 +2966,8 @@ function renderAdminFrame({
 }
 
 function renderEventCard(eventData) {
+  const isInBody = isInBodyEvent(eventData);
+
   return `
     <article class="event-card event-card-modern">
       <div class="event-card-meta">
@@ -2387,8 +2981,14 @@ function renderEventCard(eventData) {
       </div>
       <div class="event-card-actions">
         <a href="/events/${encodeURIComponent(eventData.eventId)}" data-link class="button-link">Manage Event</a>
-        <a href="${escapeAttribute(eventData.rsvpPath)}" target="_blank" rel="noreferrer" class="button-link button-link-secondary">Open RSVP</a>
-        <a href="${escapeAttribute(eventData.attendancePath)}" target="_blank" rel="noreferrer" class="button-link button-link-secondary">Open Attendance</a>
+        ${
+          isInBody
+            ? ''
+            : `
+              <a href="${escapeAttribute(eventData.rsvpPath)}" target="_blank" rel="noreferrer" class="button-link button-link-secondary">Open RSVP</a>
+              <a href="${escapeAttribute(eventData.attendancePath)}" target="_blank" rel="noreferrer" class="button-link button-link-secondary">Open Attendance</a>
+            `
+        }
       </div>
     </article>
   `;
@@ -2675,6 +3275,8 @@ function renderSelectedEventQuickPanel(eventData) {
     `;
   }
 
+  const isInBody = isInBodyEvent(eventData);
+
   return `
     <div class="selected-event-quick-panel">
       <span class="section-kicker">Selected event</span>
@@ -2686,22 +3288,37 @@ function renderSelectedEventQuickPanel(eventData) {
         <span>${escapeHtml(eventData.location)}</span>
       </div>
       <div class="selected-event-actions">
-        <a href="${escapeAttribute(eventData.rsvpPath)}" target="_blank" rel="noreferrer" class="button-link button-link-secondary selected-event-action-rsvp-open">
-          <span class="selected-event-action-icon">${renderEventActionIcon('external')}</span>
-          <span>Open RSVP</span>
-        </a>
-        <a href="${escapeAttribute(eventData.attendancePath)}" target="_blank" rel="noreferrer" class="button-link button-link-secondary selected-event-action-attendance-open">
-          <span class="selected-event-action-icon">${renderEventActionIcon('external')}</span>
-          <span>Open Attendance</span>
-        </a>
-        <a href="/events/${encodeURIComponent(eventData.eventId)}/rsvp-responses" data-link class="button-link button-link-secondary selected-event-action-rsvp-responses">
-          <span class="selected-event-action-icon">${renderEventActionIcon('responses')}</span>
-          <span>RSVP Responses</span>
-        </a>
-        <a href="/events/${encodeURIComponent(eventData.eventId)}/attendance-responses" data-link class="button-link button-link-secondary selected-event-action-attendance-responses">
-          <span class="selected-event-action-icon">${renderEventActionIcon('responses')}</span>
-          <span>Attendance Responses</span>
-        </a>
+        ${
+          isInBody
+            ? `
+              <a href="${escapeAttribute(eventData.inBodyPath)}" target="_blank" rel="noreferrer" class="button-link button-link-secondary">
+                <span class="selected-event-action-icon">${renderEventActionIcon('external')}</span>
+                <span>Open InBody</span>
+              </a>
+              <a href="/events/${encodeURIComponent(eventData.eventId)}/inbody-responses" data-link class="button-link button-link-secondary">
+                <span class="selected-event-action-icon">${renderEventActionIcon('responses')}</span>
+                <span>InBody Responses</span>
+              </a>
+            `
+            : `
+              <a href="${escapeAttribute(eventData.rsvpPath)}" target="_blank" rel="noreferrer" class="button-link button-link-secondary selected-event-action-rsvp-open">
+                <span class="selected-event-action-icon">${renderEventActionIcon('external')}</span>
+                <span>Open RSVP</span>
+              </a>
+              <a href="${escapeAttribute(eventData.attendancePath)}" target="_blank" rel="noreferrer" class="button-link button-link-secondary selected-event-action-attendance-open">
+                <span class="selected-event-action-icon">${renderEventActionIcon('external')}</span>
+                <span>Open Attendance</span>
+              </a>
+              <a href="/events/${encodeURIComponent(eventData.eventId)}/rsvp-responses" data-link class="button-link button-link-secondary selected-event-action-rsvp-responses">
+                <span class="selected-event-action-icon">${renderEventActionIcon('responses')}</span>
+                <span>RSVP Responses</span>
+              </a>
+              <a href="/events/${encodeURIComponent(eventData.eventId)}/attendance-responses" data-link class="button-link button-link-secondary selected-event-action-attendance-responses">
+                <span class="selected-event-action-icon">${renderEventActionIcon('responses')}</span>
+                <span>Attendance Responses</span>
+              </a>
+            `
+        }
       </div>
     </div>
   `;
@@ -2781,6 +3398,52 @@ function formatDateTimeLocalValue(dateTime) {
   const offsetMinutes = parsedDate.getTimezoneOffset();
   const localDate = new Date(parsedDate.getTime() - offsetMinutes * 60 * 1000);
   return localDate.toISOString().slice(0, 16);
+}
+
+function isInBodyEvent(eventData) {
+  return INBODY_EVENT_TYPES.includes(String(eventData && eventData.eventType ? eventData.eventType : '').trim());
+}
+
+function getEventTypeDisplayLabel(type) {
+  return isInBodyEvent({ eventType: type }) ? INBODY_EVENT_DISPLAY_LABEL : type;
+}
+
+function formatSlotLabel(slot) {
+  const endDate = slot.endDate || slot.date;
+  const dateLabel = endDate && endDate !== slot.date
+    ? `${formatPlainDate(slot.date)} - ${formatPlainDate(endDate)}`
+    : formatPlainDate(slot.date);
+  const startLabel = formatPlainTime(slot.startTime);
+  const endLabel = formatPlainTime(slot.endTime);
+
+  return `${dateLabel}, ${startLabel} - ${endLabel}`;
+}
+
+function formatPlainDate(value) {
+  const parsedDate = new Date(`${value}T00:00:00`);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return value || 'Schedule';
+  }
+
+  return new Intl.DateTimeFormat('en-PH', {
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric'
+  }).format(parsedDate);
+}
+
+function formatPlainTime(value) {
+  const parsedDate = new Date(`2000-01-01T${value}`);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return value || '';
+  }
+
+  return new Intl.DateTimeFormat('en-PH', {
+    hour: 'numeric',
+    minute: '2-digit'
+  }).format(parsedDate);
 }
 
 function getEventLifecycleLabel(eventData) {
@@ -3320,6 +3983,20 @@ function attendanceColumnFallback() {
     'Email Address',
     'Address',
     'Profession'
+  ];
+}
+
+function inBodyColumnFallback() {
+  return [
+    'Full Name',
+    'Email Address',
+    'Mobile Number',
+    'Profession',
+    'Invited By',
+    'InBody Mode',
+    'Slot Label',
+    'Booking Status',
+    'Updated At'
   ];
 }
 
