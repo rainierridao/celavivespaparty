@@ -5424,6 +5424,118 @@ textarea {
   box-shadow: 0 16px 34px rgba(187, 69, 65, 0.2) !important;
 }
 
+.prospect-score-button {
+  min-width: 44px;
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 12px;
+  border: 1px solid rgba(81, 96, 232, 0.24);
+  border-radius: 999px;
+  background: rgba(81, 96, 232, 0.08);
+  color: #3543c5;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+  transition:
+    background 160ms ease,
+    border-color 160ms ease,
+    transform 160ms ease;
+}
+
+.prospect-score-button:hover,
+.prospect-score-button:focus-visible {
+  background: rgba(81, 96, 232, 0.14);
+  border-color: rgba(81, 96, 232, 0.46);
+  transform: translateY(-1px);
+  outline: none;
+}
+
+.prospect-insight-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 62;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(18, 24, 38, 0.24);
+  backdrop-filter: blur(10px);
+  opacity: 0;
+  transition: opacity 180ms ease;
+}
+
+.prospect-insight-modal[hidden] {
+  display: none;
+}
+
+.prospect-insight-modal.is-open {
+  opacity: 1;
+}
+
+.prospect-insight-surface {
+  width: min(460px, 100%);
+  max-height: min(680px, calc(100vh - 40px));
+  display: grid;
+  gap: 12px;
+  padding: 20px;
+  overflow: auto;
+  border: 1px solid rgba(204, 214, 236, 0.92);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 24px 60px rgba(35, 48, 83, 0.18);
+  transform: translateY(10px) scale(0.98);
+  transition: transform 180ms ease;
+}
+
+.prospect-insight-modal.is-open .prospect-insight-surface {
+  transform: translateY(0) scale(1);
+}
+
+.prospect-insight-kicker {
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #5160e8;
+}
+
+.prospect-insight-surface h2 {
+  margin: 0;
+  font-size: 1.35rem;
+  line-height: 1.1;
+  color: var(--software-ink);
+}
+
+.prospect-insight-surface p {
+  margin: 0;
+  color: var(--software-muted);
+  font-size: 0.92rem;
+  line-height: 1.55;
+}
+
+.prospect-insight-drivers {
+  display: grid;
+  gap: 8px;
+  margin: 2px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.prospect-insight-drivers li {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #f7f8ff;
+  color: #3f4866;
+  font-size: 0.85rem;
+  line-height: 1.35;
+}
+
+.prospect-insight-close {
+  min-height: 44px !important;
+  margin-top: 2px;
+}
+
 .profile-popover[hidden] {
   display: none !important;
 }

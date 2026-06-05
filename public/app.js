@@ -498,6 +498,30 @@ async function guardAuthenticated() {
 }
 
 function handleGlobalClick(event) {
+  const prospectScoreButton = event.target.closest('[data-prospect-score]');
+
+  if (prospectScoreButton) {
+    event.preventDefault();
+    showProspectScoreInsight(prospectScoreButton);
+    return;
+  }
+
+  const prospectInsightClose = event.target.closest('[data-prospect-insight-close]');
+
+  if (prospectInsightClose) {
+    event.preventDefault();
+    closeProspectScoreInsight();
+    return;
+  }
+
+  const prospectInsightBackdrop = event.target.closest('[data-prospect-insight-backdrop]');
+
+  if (prospectInsightBackdrop && !event.target.closest('[data-prospect-insight-surface]')) {
+    event.preventDefault();
+    closeProspectScoreInsight();
+    return;
+  }
+
   const confirmAccept = event.target.closest('[data-confirm-accept]');
 
   if (confirmAccept) {
@@ -603,6 +627,10 @@ function handleGlobalKeydown(event) {
       return;
     }
 
+    if (closeProspectScoreInsight()) {
+      return;
+    }
+
     closeProfilePopover();
   }
 }
@@ -681,6 +709,78 @@ function ensureConfirmModal() {
         <button type="button" class="button-link button-link-secondary confirm-modal-button" data-confirm-cancel></button>
         <button type="button" class="button-link confirm-modal-button" data-confirm-accept></button>
       </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  return modal;
+}
+
+function showProspectScoreInsight(button) {
+  let row = {};
+
+  try {
+    row = JSON.parse(button.dataset.prospectRow || '{}');
+  } catch (error) {
+    row = {};
+  }
+
+  const insight = buildCelaviveProspectInsight(row);
+  const modal = ensureProspectScoreInsightModal();
+
+  modal.querySelector('[data-prospect-insight-title]').textContent = insight.title;
+  modal.querySelector('[data-prospect-insight-summary]').textContent = insight.summary;
+  modal.querySelector('[data-prospect-insight-drivers]').innerHTML = insight.drivers
+    .map((driver) => `<li>${escapeHtml(driver)}</li>`)
+    .join('');
+  modal.hidden = false;
+
+  window.requestAnimationFrame(() => {
+    modal.classList.add('is-open');
+    const closeButton = modal.querySelector('[data-prospect-insight-close]');
+
+    if (closeButton) {
+      closeButton.focus();
+    }
+  });
+}
+
+function closeProspectScoreInsight() {
+  const modal = document.getElementById('prospectScoreInsightModal');
+
+  if (!modal || modal.hidden) {
+    return false;
+  }
+
+  modal.classList.remove('is-open');
+
+  window.setTimeout(() => {
+    if (modal) {
+      modal.hidden = true;
+    }
+  }, 180);
+
+  return true;
+}
+
+function ensureProspectScoreInsightModal() {
+  let modal = document.getElementById('prospectScoreInsightModal');
+
+  if (modal) {
+    return modal;
+  }
+
+  modal = document.createElement('div');
+  modal.id = 'prospectScoreInsightModal';
+  modal.className = 'prospect-insight-modal';
+  modal.hidden = true;
+  modal.setAttribute('data-prospect-insight-backdrop', '');
+  modal.innerHTML = `
+    <div class="prospect-insight-surface" data-prospect-insight-surface role="dialog" aria-modal="true" aria-labelledby="prospectScoreInsightTitle">
+      <div class="prospect-insight-kicker">Score insight</div>
+      <h2 id="prospectScoreInsightTitle" data-prospect-insight-title></h2>
+      <p data-prospect-insight-summary></p>
+      <ul class="prospect-insight-drivers" data-prospect-insight-drivers></ul>
+      <button type="button" class="button-link prospect-insight-close" data-prospect-insight-close>Close</button>
     </div>
   `;
   document.body.appendChild(modal);
@@ -2908,10 +3008,7 @@ function getVisibleResponseColumns(mode, responses) {
   }
 
   const priorityColumns = celaviveRaffleColumnFallback();
-  return [
-    ...priorityColumns.filter((column) => visibleColumns.includes(column)),
-    ...visibleColumns.filter((column) => !priorityColumns.includes(column))
-  ];
+  return priorityColumns.filter((column) => visibleColumns.includes(column));
 }
 
 function renderPublicEventPage(mode, eventData) {
@@ -3414,7 +3511,7 @@ function renderTable(columns, rows, mode = '') {
             .map(
               (row) => `
                 <tr>
-                  ${columns.map((column) => `<td>${escapeHtml(row[column] || '')}</td>`).join('')}
+                  ${columns.map((column) => `<td>${renderResponseCell(row, column, mode)}</td>`).join('')}
                   <td>${renderResponseRowActions(row, mode)}</td>
                 </tr>
               `
@@ -3424,6 +3521,26 @@ function renderTable(columns, rows, mode = '') {
       </table>
     </div>
   `;
+}
+
+function renderResponseCell(row, column, mode = '') {
+  const value = row[column] || '';
+
+  if (mode === 'celavive-raffle' && column === 'Prospect Score' && value !== '') {
+    return `
+      <button
+        type="button"
+        class="prospect-score-button"
+        data-prospect-score
+        data-prospect-row="${escapeAttribute(JSON.stringify(row))}"
+        aria-label="View score insight for ${escapeAttribute(row['Name'] || row['Email Address'] || 'this entry')}"
+      >
+        ${escapeHtml(value)}
+      </button>
+    `;
+  }
+
+  return escapeHtml(value);
 }
 
 function renderResponseRowActions(row, mode) {
@@ -3446,6 +3563,87 @@ function renderResponseRowActions(row, mode) {
       Delete
     </button>
   `;
+}
+
+function buildCelaviveProspectInsight(row) {
+  const score = Number.parseInt(String(row['Prospect Score'] || '0'), 10) || 0;
+  const tier = row['Prospect Tier'] || getProspectTierFromScore(score);
+  const concernCount = splitCelaviveConcernList(row['Top Skin Concerns']).length;
+  const concernScore = Math.min(4, concernCount);
+  const drivers = [
+    `${concernCount} skin concern${concernCount === 1 ? '' : 's'} selected${concernCount ? `: ${row['Top Skin Concerns']}` : ''} (${concernScore} point${concernScore === 1 ? '' : 's'}).`,
+    formatProspectDriver('Skincare importance', row['Skincare Importance'], getCelaviveOptionScore('skincareImportance', row['Skincare Importance'])),
+    formatProspectDriver('Buying frequency', row['Buying Frequency'], getCelaviveOptionScore('buyingFrequency', row['Buying Frequency'])),
+    formatProspectDriver('Current routine', row['Current Routine'], getCelaviveOptionScore('currentRoutine', row['Current Routine'])),
+    formatProspectDriver('Monthly spend', row['Monthly Spend'], getCelaviveOptionScore('monthlySpend', row['Monthly Spend'])),
+    formatProspectDriver('Premium experience', row['Premium Experience'], getCelaviveOptionScore('premiumExperience', row['Premium Experience'])),
+    formatProspectDriver('Willingness to invest', row['Willingness To Invest'], getCelaviveOptionScore('willingnessToInvest', row['Willingness To Invest'])),
+    formatProspectDriver('Personalized experience interest', row['Personalized Experience Interest'], getPersonalizedExperienceScore(row['Personalized Experience Interest']))
+  ].filter(Boolean);
+
+  return {
+    title: `${score} · ${tier}`,
+    summary: getProspectInsightSummary(score, tier, row, concernCount),
+    drivers
+  };
+}
+
+function getProspectInsightSummary(score, tier, row, concernCount) {
+  const willingness = row['Willingness To Invest'] || 'no investment answer';
+  const interest = row['Personalized Experience Interest'] || 'no personalized experience answer';
+  const frequency = row['Buying Frequency'] || 'no buying frequency answer';
+
+  if (score >= 18) {
+    return `This guest is a ${tier} because they show strong skincare interest, selected ${concernCount} concern${concernCount === 1 ? '' : 's'}, buy skincare ${frequency.toLowerCase()}, and answered "${willingness}" about investing.`;
+  }
+
+  if (score >= 10) {
+    return `This guest is a ${tier} because they show moderate interest: ${concernCount} concern${concernCount === 1 ? '' : 's'}, buying frequency of "${frequency}", and investment answer of "${willingness}".`;
+  }
+
+  return `This guest is a ${tier} because their answers show lighter current intent: ${concernCount} concern${concernCount === 1 ? '' : 's'}, "${frequency}" buying frequency, and "${interest}" for a personalized experience.`;
+}
+
+function formatProspectDriver(label, value, score) {
+  if (!value) {
+    return '';
+  }
+
+  return `${label}: ${value} (${score} point${score === 1 ? '' : 's'}).`;
+}
+
+function splitCelaviveConcernList(value) {
+  return String(value || '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function getProspectTierFromScore(score) {
+  if (score >= 18) {
+    return 'Hot Prospect';
+  }
+
+  if (score >= 10) {
+    return 'Warm Prospect';
+  }
+
+  return 'Light Prospect';
+}
+
+function getCelaviveOptionScore(field, value) {
+  const question = celaviveRaffleQuestions.find((item) => item.name === field);
+  const index = question && question.options ? question.options.indexOf(value) : -1;
+
+  return Math.max(0, index);
+}
+
+function getPersonalizedExperienceScore(value) {
+  return {
+    'Yes, definitely': 3,
+    Maybe: 1,
+    'Not right now': 0
+  }[value] || 0;
 }
 
 function renderAdminSidebar(activeView, user, eventCount) {
@@ -4461,11 +4659,7 @@ function celaviveRaffleColumnFallback() {
     'Profession',
     'Invited By',
     'Prospect Score',
-    'Prospect Tier',
-    'Top Skin Concerns',
-    'Desired Result',
-    'Willingness To Invest',
-    'Personalized Experience Interest'
+    'Prospect Tier'
   ];
 }
 
