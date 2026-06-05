@@ -3,6 +3,7 @@ const INBODY_EVENT_TYPE = 'Wellness Assessment';
 const LEGACY_INBODY_EVENT_TYPE = 'Free InBody Assessment';
 const INBODY_EVENT_DISPLAY_LABEL = 'Free Wellness Assessment';
 const INBODY_EVENT_TYPES = [INBODY_EVENT_TYPE, LEGACY_INBODY_EVENT_TYPE];
+const CELAVIVE_RAFFLE_EVENT_TYPE = 'Celavive Spa Party - Raffle Entry';
 const apiBaseCandidates =
   window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost'
     ? ['/api', '/.netlify/functions/api']
@@ -31,6 +32,32 @@ const publicInBodySlides = [
   '/assets/inbody/gabin-vallet-J154nEkpzlQ-unsplash.jpg',
   '/assets/inbody/jared-rice-xce530fBHrk-unsplash.jpg',
   '/assets/inbody/mariana-medvedeva-usfIE5Yc7PY-unsplash.jpg'
+];
+const celaviveRaffleQuestions = [
+  {
+    name: 'topSkinConcerns',
+    label: 'What are your top skin concerns?',
+    type: 'checkbox',
+    options: [
+      'Dryness',
+      'Dull or tired-looking skin',
+      'Fine lines/wrinkles',
+      'Acne or breakouts',
+      'Dark spots/pigmentation',
+      'Sensitive skin/redness',
+      'Uneven skin tone',
+      'Enlarged pores'
+    ]
+  },
+  { name: 'skinType', label: 'How would you describe your skin type?', options: ['Dry', 'Oily', 'Combination', 'Sensitive', 'I’m not sure'] },
+  { name: 'skincareImportance', label: 'How important is skincare to you?', options: ['Not a priority', 'Somewhat important', 'Important', 'Very important — I invest in skincare regularly'] },
+  { name: 'buyingFrequency', label: 'How often do you buy skincare products?', options: ['Rarely', 'Every 3–6 months', 'Every few months', 'Monthly or regularly'] },
+  { name: 'currentRoutine', label: 'Which best describes your current skincare routine?', options: ['Soap only', 'Basic routine (cleanser/moisturizer)', '3–4 step skincare routine', 'Multi-step skincare routine', 'I already invest in premium skincare'] },
+  { name: 'monthlySpend', label: 'On average, how much do you spend on skincare/self-care monthly?', options: ['Below ₱500', '₱500–₱1,500', '₱1,500–₱3,000', '₱3,000+'] },
+  { name: 'desiredResult', label: 'What skincare result would you love to improve most?', options: ['Brighter/glowing skin', 'Hydration/moisture', 'Fewer fine lines', 'Clearer skin', 'Even skin tone', 'Firmer-looking skin'] },
+  { name: 'premiumExperience', label: 'Have you tried professional skincare or premium skincare products before?', options: ['No, not yet', 'A few times', 'Yes, occasionally', 'Yes, regularly'] },
+  { name: 'willingnessToInvest', label: 'If you found a skincare regimen that truly works for your skin, would you consider investing in it?', options: ['Not right now', 'Maybe', 'Yes, if it fits my needs', 'Definitely'] },
+  { name: 'personalizedExperienceInterest', label: 'Would you be interested in a personalized full skincare experience if selected?', options: ['Yes, definitely', 'Maybe', 'Not right now'] }
 ];
 
 const state = {
@@ -64,7 +91,7 @@ async function loadConfig() {
   } catch (error) {
     state.config = {
       eventName: 'Celavive Spa Party',
-      eventTypes: ['OPP', 'Celavive Spa Party', INBODY_EVENT_TYPE],
+      eventTypes: ['OPP', 'Celavive Spa Party', CELAVIVE_RAFFLE_EVENT_TYPE, INBODY_EVENT_TYPE],
       professions: [],
       googleSheetsConfigured: false
     };
@@ -233,10 +260,14 @@ async function renderRoute() {
       const inBodyResult = isInBodyEvent(eventResult.event)
         ? await fetchJson(`/events/${eventId}/inbody-responses`)
         : { responses: [] };
+      const celaviveRaffleResult = isCelaviveRaffleEvent(eventResult.event)
+        ? await fetchJson(`/events/${eventId}/celavive-raffle-responses`)
+        : { responses: [] };
       renderPage(renderEventDetailPage(eventResult.event, {
         rsvpResponses: rsvpResult.responses || [],
         attendanceResponses: attendanceResult.responses || [],
-        inBodyResponses: inBodyResult.responses || []
+        inBodyResponses: inBodyResult.responses || [],
+        celaviveRaffleResponses: celaviveRaffleResult.responses || []
       }));
       attachAdminShellHandlers();
       attachEventDetailHandlers(eventResult.event);
@@ -271,6 +302,34 @@ async function renderRoute() {
       attachInBodyResponseHandlers(result.event);
     } catch (error) {
       renderPage(renderErrorPage('Unable to load InBody responses.', error.message));
+    }
+
+    return;
+  }
+
+  const celaviveRaffleResponseMatch = pathname.match(/^\/events\/([^/]+)\/celavive-raffle-responses$/);
+
+  if (celaviveRaffleResponseMatch) {
+    if (!(await guardAuthenticated())) {
+      return;
+    }
+
+    renderLoading('Loading Celavive raffle responses...', {
+      admin: {
+        activeView: 'dashboard',
+        title: 'Loading Celavive raffle responses',
+        subtitle: 'Preparing skin profile entries and prospect scoring for review.',
+        badge: 'Responses'
+      }
+    });
+    attachAdminShellHandlers();
+
+    try {
+      const result = await fetchJson(`/events/${celaviveRaffleResponseMatch[1]}/celavive-raffle-responses`);
+      renderPage(renderResponsesPage('Celavive Raffle Responses', result.event, result.responses, 'celavive-raffle'));
+      attachAdminShellHandlers();
+    } catch (error) {
+      renderPage(renderErrorPage('Unable to load Celavive raffle responses.', error.message));
     }
 
     return;
@@ -387,6 +446,30 @@ async function renderRoute() {
       attachInBodyHandlers(result.event);
     } catch (error) {
       renderPage(renderErrorPage('Unable to load that InBody page.', error.message));
+    }
+
+    return;
+  }
+
+  const celaviveRaffleMatch = pathname.match(/^\/celavive-raffle\/([^/]+)$/);
+
+  if (celaviveRaffleMatch) {
+    renderLoading('Loading Celavive raffle form...');
+
+    try {
+      const result = await fetchJson(`/public-events/${celaviveRaffleMatch[1]}`);
+
+      if (!isCelaviveRaffleEvent(result.event)) {
+        renderPage(renderErrorPage('Celavive raffle page unavailable.', 'This event does not have a Celavive raffle entry workflow.'));
+        return;
+      }
+
+      renderPage(renderPublicCelaviveRafflePage(result.event));
+      attachPublicShowcase();
+      syncDynamicHeaderTitle();
+      attachCelaviveRaffleHandlers(result.event);
+    } catch (error) {
+      renderPage(renderErrorPage('Unable to load that Celavive raffle page.', error.message));
     }
 
     return;
@@ -949,8 +1032,11 @@ function attachEventDetailHandlers(eventData) {
   const qrOpenLink = document.getElementById('qrOpenLink');
   const inBodyQrImage = document.getElementById('inBodyQrImage');
   const inBodyQrOpenLink = document.getElementById('inBodyQrOpenLink');
+  const celaviveRaffleQrImage = document.getElementById('celaviveRaffleQrImage');
+  const celaviveRaffleQrOpenLink = document.getElementById('celaviveRaffleQrOpenLink');
   const rsvpUrl = `${window.location.origin}${eventData.rsvpPath}`;
   const inBodyUrl = eventData.inBodyPath ? `${window.location.origin}${eventData.inBodyPath}` : '';
+  const celaviveRaffleUrl = eventData.celaviveRafflePath ? `${window.location.origin}${eventData.celaviveRafflePath}` : '';
 
   if (qrImage) {
     qrImage.src = buildQrUrl(rsvpUrl);
@@ -975,6 +1061,19 @@ function attachEventDetailHandlers(eventData) {
     inBodyQrOpenLink.addEventListener('click', (event) => {
       event.preventDefault();
       openBrandedQrTab({ ...eventData, eventLabel: `${eventData.eventLabel} InBody` }, inBodyUrl);
+    });
+  }
+
+  if (celaviveRaffleQrImage && celaviveRaffleUrl) {
+    celaviveRaffleQrImage.src = buildQrUrl(celaviveRaffleUrl);
+    celaviveRaffleQrImage.alt = `Branded QR code for ${eventData.eventLabel} Celavive raffle`;
+  }
+
+  if (celaviveRaffleQrOpenLink && celaviveRaffleUrl) {
+    celaviveRaffleQrOpenLink.href = buildQrUrl(celaviveRaffleUrl);
+    celaviveRaffleQrOpenLink.addEventListener('click', (event) => {
+      event.preventDefault();
+      openBrandedQrTab({ ...eventData, eventLabel: `${eventData.eventLabel} Celavive Raffle` }, celaviveRaffleUrl);
     });
   }
 
@@ -1063,7 +1162,7 @@ function attachEventDetailHandlers(eventData) {
         const result = await fetchJson(`/events/${eventData.eventId}`, {
           method: 'PATCH',
           body: {
-            action: 'rsvp-settings',
+            action: isCelaviveRaffleEvent(eventData) ? 'celavive-entry-settings' : 'rsvp-settings',
             rsvpAccepting: Boolean(acceptingInput && acceptingInput.checked),
             rsvpMaxYes: maxYesInput ? maxYesInput.value : ''
           }
@@ -1328,6 +1427,54 @@ function attachInBodyHandlers(eventData) {
       setStatus(status, error.message, 'is-error');
     } finally {
       setButtonLoading(submitButton, false, eventData.inBodyMode === 'booking' ? 'Book Assessment' : 'Submit Entry');
+    }
+  });
+}
+
+function attachCelaviveRaffleHandlers(eventData) {
+  const form = document.getElementById('publicCelaviveRaffleForm');
+
+  if (!form) {
+    return;
+  }
+
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const status = document.getElementById('publicFormStatus');
+    const submitButton = form.querySelector('button[type="submit"]');
+    const topSkinConcerns = Array.from(form.querySelectorAll('input[name="topSkinConcerns"]:checked')).map((input) => input.value);
+
+    setStatus(status, '', '');
+
+    try {
+      setButtonLoading(submitButton, true, 'Submitting...');
+      const result = await fetchJson(`/events/${eventData.eventId}/celavive-raffle`, {
+        method: 'POST',
+        body: {
+          name: form.name.value,
+          contactNumber: form.contactNumber.value,
+          emailAddress: form.emailAddress.value,
+          profession: form.profession.value,
+          invitedBy: form.invitedBy.value,
+          topSkinConcerns,
+          skinType: form.skinType.value,
+          skincareImportance: form.skincareImportance.value,
+          buyingFrequency: form.buyingFrequency.value,
+          currentRoutine: form.currentRoutine.value,
+          monthlySpend: form.monthlySpend.value,
+          desiredResult: form.desiredResult.value,
+          premiumExperience: form.premiumExperience.value,
+          willingnessToInvest: form.willingnessToInvest.value,
+          personalizedExperienceInterest: form.personalizedExperienceInterest.value
+        }
+      });
+
+      form.reset();
+      setStatus(status, result.message, 'is-success');
+    } catch (error) {
+      setStatus(status, error.message, 'is-error');
+    } finally {
+      setButtonLoading(submitButton, false, 'Submit Raffle Entry');
     }
   });
 }
@@ -2036,13 +2183,17 @@ function renderInBodySlotRow(slot = {}) {
 
 function renderEventDetailPage(eventData, previews = {}) {
   const isInBody = isInBodyEvent(eventData);
+  const isCelaviveRaffle = isCelaviveRaffleEvent(eventData);
   const rsvpUrl = `${window.location.origin}${eventData.rsvpPath}`;
   const attendanceUrl = `${window.location.origin}${eventData.attendancePath}`;
   const inBodyUrl = eventData.inBodyPath ? `${window.location.origin}${eventData.inBodyPath}` : '';
+  const celaviveRaffleUrl = eventData.celaviveRafflePath ? `${window.location.origin}${eventData.celaviveRafflePath}` : '';
   const inBodyCount = (previews.inBodyResponses || []).length;
+  const celaviveRaffleCount = (previews.celaviveRaffleResponses || []).length;
   const rsvpPreviewRows = buildResponsePreviewRows(previews.rsvpResponses || [], 'rsvp');
   const attendancePreviewRows = buildResponsePreviewRows(previews.attendanceResponses || [], 'attendance');
   const inBodyPreviewRows = buildResponsePreviewRows(previews.inBodyResponses || [], 'inbody');
+  const celaviveRafflePreviewRows = buildResponsePreviewRows(previews.celaviveRaffleResponses || [], 'celavive-raffle');
 
   return renderAdminFrame({
     activeView: eventData.isArchived ? 'archive' : 'dashboard',
@@ -2070,14 +2221,14 @@ function renderEventDetailPage(eventData, previews = {}) {
                   ? ''
                   : `
                     <button id="openRsvpSettingsButton" type="button" class="button-link button-link-secondary rsvp-settings-open-button">
-                      RSVP Settings
+                      ${escapeHtml(isCelaviveRaffle ? 'Entry Settings' : 'RSVP Settings')}
                     </button>
                   `
               }
             </div>
             <div class="detail-link-grid">
               ${
-                isInBody
+                isInBody || isCelaviveRaffle
                   ? ''
                   : `
                     <div class="link-stack modern-link-stack">
@@ -2115,11 +2266,26 @@ function renderEventDetailPage(eventData, previews = {}) {
                   `
                   : ''
               }
+              ${
+                isCelaviveRaffle
+                  ? `
+                    <div class="link-stack modern-link-stack">
+                      <label>Celavive Raffle Link</label>
+                      ${renderEventUrlControl({
+                        url: celaviveRaffleUrl,
+                        openHref: eventData.celaviveRafflePath,
+                        copyLabel: 'Celavive raffle link',
+                        openLabel: 'Open Celavive raffle'
+                      })}
+                    </div>
+                  `
+                  : ''
+              }
             </div>
             <div id="eventActionStatus" class="status event-link-status" aria-live="polite"></div>
             <div class="event-link-grid detail-response-grid detail-response-grid-inline">
               ${
-                isInBody
+                isInBody || isCelaviveRaffle
                   ? ''
                   : `
                     <a href="/events/${encodeURIComponent(eventData.eventId)}/rsvp-responses" data-link class="action-card action-card-strong">
@@ -2154,13 +2320,27 @@ function renderEventDetailPage(eventData, previews = {}) {
                   `
                   : ''
               }
+              ${
+                isCelaviveRaffle
+                  ? `
+                    <a href="/events/${encodeURIComponent(eventData.eventId)}/celavive-raffle-responses" data-link class="action-card">
+                      <div class="detail-response-card-head">
+                        <strong>View all Celavive raffle responses</strong>
+                        <span class="detail-response-count">${celaviveRaffleCount}</span>
+                      </div>
+                      <span>Latest skin profile entries with prospect scoring.</span>
+                      ${renderResponsePreviewList(celaviveRafflePreviewRows, 'celavive-raffle')}
+                    </a>
+                  `
+                  : ''
+              }
             </div>
           </section>
         </div>
 
         <aside class="detail-side-stack">
           ${
-            isInBody
+            isInBody || isCelaviveRaffle
               ? ''
               : `
                 <section class="workspace-panel qr-card${eventData.isArchived ? '' : ' qr-card-active'}">
@@ -2215,6 +2395,24 @@ function renderEventDetailPage(eventData, previews = {}) {
               `
               : ''
           }
+          ${
+            isCelaviveRaffle
+              ? `
+                <section class="workspace-panel qr-card qr-card-active">
+                  <span class="section-kicker">Celavive raffle QR</span>
+                  <h3>Raffle Entry QR code</h3>
+                  <p>Share this QR so guests can complete their skin profile before submitting a raffle entry.</p>
+                  <div class="qr-panel">
+                    <div class="qr-image-stack">
+                      <img id="celaviveRaffleQrImage" class="qr-image" alt="Celavive raffle QR code">
+                      <img class="qr-brand-mark" src="/assets/logo/Genesys_Logo2.svg" alt="" aria-hidden="true">
+                    </div>
+                  </div>
+                  <a id="celaviveRaffleQrOpenLink" class="button-link button-link-secondary" target="_blank" rel="noreferrer" href="${escapeAttribute(buildQrUrl(celaviveRaffleUrl))}">Open QR in new tab</a>
+                </section>
+              `
+              : ''
+          }
         </aside>
       </section>
       ${eventData.isArchived || isInBody ? '' : renderRsvpSettingsModal(eventData)}
@@ -2223,20 +2421,31 @@ function renderEventDetailPage(eventData, previews = {}) {
 }
 
 function renderRsvpSettingsModal(eventData) {
-  const availability = eventData.rsvpAvailability || {};
-  const maxYes = eventData.rsvpMaxYes || availability.maxYes || '';
-  const yesCount = Number.isFinite(availability.yesCount) ? availability.yesCount : 0;
+  const isEntrySettings = isCelaviveRaffleEvent(eventData);
+  const availability = isEntrySettings ? eventData.celaviveRaffleAvailability || {} : eventData.rsvpAvailability || {};
+  const maxYes = eventData.rsvpMaxYes || availability.maxEntries || availability.maxYes || '';
+  const currentCount = isEntrySettings
+    ? Number.isFinite(availability.entryCount) ? availability.entryCount : 0
+    : Number.isFinite(availability.yesCount) ? availability.yesCount : 0;
+  const title = isEntrySettings ? 'Entry Settings' : 'RSVP Settings';
+  const kicker = isEntrySettings ? 'Entry controls' : 'RSVP controls';
+  const toggleLabel = isEntrySettings ? 'Accept Entries' : 'Accept RSVPs';
+  const countLabel = isEntrySettings
+    ? `${currentCount} raffle entr${currentCount === 1 ? 'y' : 'ies'} so far.`
+    : `${currentCount} accepted Yes RSVP${currentCount === 1 ? '' : 's'} so far.`;
+  const maxLabel = isEntrySettings ? 'Max raffle entries' : 'Max accepted Yes RSVPs';
+  const maxPlaceholder = isEntrySettings ? 'Example: 6' : 'Example: 20';
 
   return `
     <div id="rsvpSettingsModal" class="rsvp-settings-modal" hidden>
       <section class="rsvp-settings-surface" role="dialog" aria-modal="true" aria-labelledby="rsvpSettingsTitle">
         <div class="rsvp-settings-head">
           <div>
-            <span class="section-kicker">RSVP controls</span>
-            <h2 id="rsvpSettingsTitle">RSVP Settings</h2>
-            <p>${yesCount} accepted Yes RSVP${yesCount === 1 ? '' : 's'} so far.</p>
+            <span class="section-kicker">${escapeHtml(kicker)}</span>
+            <h2 id="rsvpSettingsTitle">${escapeHtml(title)}</h2>
+            <p>${escapeHtml(countLabel)}</p>
           </div>
-          <button type="button" class="rsvp-settings-close" data-close-rsvp-settings aria-label="Close RSVP settings">
+          <button type="button" class="rsvp-settings-close" data-close-rsvp-settings aria-label="Close ${escapeAttribute(title.toLowerCase())}">
             <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
               <path d="M7 7L17 17" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
               <path d="M17 7L7 17" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
@@ -2246,7 +2455,7 @@ function renderRsvpSettingsModal(eventData) {
         <form id="rsvpSettingsForm" class="rsvp-settings-form">
           <label class="rsvp-toggle-row" for="rsvpAccepting">
             <span>
-              <strong>Accept RSVPs</strong>
+              <strong>${escapeHtml(toggleLabel)}</strong>
             </span>
             <input id="rsvpAccepting" name="rsvpAccepting" type="checkbox" ${eventData.rsvpAccepting ? 'checked' : ''}>
             <span class="rsvp-lock-toggle" aria-hidden="true">
@@ -2265,8 +2474,8 @@ function renderRsvpSettingsModal(eventData) {
             </span>
           </label>
           <div class="field">
-            <label for="rsvpMaxYes">Max accepted Yes RSVPs</label>
-            <input id="rsvpMaxYes" name="rsvpMaxYes" type="number" min="1" step="1" inputmode="numeric" value="${escapeAttribute(maxYes)}" placeholder="Example: 20">
+            <label for="rsvpMaxYes">${escapeHtml(maxLabel)}</label>
+            <input id="rsvpMaxYes" name="rsvpMaxYes" type="number" min="1" step="1" inputmode="numeric" value="${escapeAttribute(maxYes)}" placeholder="${escapeAttribute(maxPlaceholder)}">
           </div>
           <div id="rsvpSettingsStatus" class="status" aria-live="polite"></div>
           <div class="rsvp-settings-actions">
@@ -2309,7 +2518,7 @@ function renderResponsesPage(title, eventData, responses, mode) {
             : `
               <div class="empty-state empty-state-modern">
                 <strong>No responses yet.</strong>
-                <span>This event has not collected any ${mode === 'rsvp' ? 'RSVP' : mode === 'inbody' ? 'InBody' : 'attendance'} entries so far.</span>
+                <span>This event has not collected any ${mode === 'rsvp' ? 'RSVP' : mode === 'inbody' ? 'InBody' : mode === 'celavive-raffle' ? 'Celavive raffle' : 'attendance'} entries so far.</span>
               </div>
             `
         }
@@ -2594,13 +2803,15 @@ function renderMobileRsvpResponses(columns, rows) {
 
 function buildResponsePreviewRows(responses, mode) {
   return responses.slice(0, 3).map((row) => ({
-    name: row['Full Name'] || row['Full Name of Attendee'] || 'Unknown attendee',
-    metaLabel: mode === 'rsvp' ? 'Invited by' : mode === 'inbody' ? 'Slot' : 'Profession',
+    name: row['Name'] || row['Full Name'] || row['Full Name of Attendee'] || 'Unknown attendee',
+    metaLabel: mode === 'rsvp' ? 'Invited by' : mode === 'inbody' ? 'Slot' : mode === 'celavive-raffle' ? 'Tier' : 'Profession',
     metaValue:
       mode === 'rsvp'
         ? row['Invited By'] || row['Name of the person who invited you'] || 'Not provided'
         : mode === 'inbody'
           ? row['Slot Label'] || row['Booking Status'] || row['InBody Mode'] || 'InBody response'
+        : mode === 'celavive-raffle'
+          ? row['Prospect Tier'] || row['Prospect Score'] || row['Contact Number'] || 'Skin profile'
         : row['Profession'] || row['Email Address'] || row['Mobile Number'] || 'Attendance registration'
   }));
 }
@@ -2610,7 +2821,7 @@ function renderResponsePreviewList(rows, mode) {
     return `
       <div class="response-preview-list is-empty">
         <div class="response-preview-item">
-          <span class="response-preview-name">No ${mode === 'rsvp' ? 'RSVP' : mode === 'inbody' ? 'InBody' : 'attendance'} responses yet</span>
+          <span class="response-preview-name">No ${mode === 'rsvp' ? 'RSVP' : mode === 'inbody' ? 'InBody' : mode === 'celavive-raffle' ? 'Celavive raffle' : 'attendance'} responses yet</span>
           <span class="response-preview-meta">Preview appears here once responses come in.</span>
         </div>
       </div>
@@ -2645,10 +2856,25 @@ function getVisibleResponseColumns(mode, responses) {
     'Location',
     'Date Time'
   ]);
-  const fallbackColumns = mode === 'rsvp' ? rsvpColumnFallback() : mode === 'inbody' ? inBodyColumnFallback() : attendanceColumnFallback();
+  const fallbackColumns = mode === 'rsvp'
+    ? rsvpColumnFallback()
+    : mode === 'inbody'
+      ? inBodyColumnFallback()
+      : mode === 'celavive-raffle'
+        ? celaviveRaffleColumnFallback()
+        : attendanceColumnFallback();
   const sourceColumns = responses.length ? Object.keys(responses[0]) : fallbackColumns;
+  const visibleColumns = sourceColumns.filter((column) => !hiddenColumns.has(column));
 
-  return sourceColumns.filter((column) => !hiddenColumns.has(column));
+  if (mode !== 'celavive-raffle' || !responses.length) {
+    return visibleColumns;
+  }
+
+  const priorityColumns = celaviveRaffleColumnFallback();
+  return [
+    ...priorityColumns.filter((column) => visibleColumns.includes(column)),
+    ...visibleColumns.filter((column) => !priorityColumns.includes(column))
+  ];
 }
 
 function renderPublicEventPage(mode, eventData) {
@@ -2747,6 +2973,143 @@ function renderPublicInBodyPage(eventData) {
         </section>
       </div>
     </div>
+  `;
+}
+
+function renderPublicCelaviveRafflePage(eventData) {
+  const eventDateTime = eventData.displayDateTime || formatMetricDateTime(eventData.dateTime);
+  const availability = eventData.celaviveRaffleAvailability || {};
+  const entriesClosed = availability.canAccept === false;
+
+  return `
+    <div class="page public-page">
+      <div class="public-shell-modern${entriesClosed ? ' is-rsvp-closed' : ''}">
+        <section class="public-hero-panel">
+          <div class="public-hero-copy">
+            <h1 data-dynamic-title>CELAVIVE Personalized Skin Profile Form</h1>
+            <p class="lede">Help us understand your skin better for a more personalized skincare experience.</p>
+          </div>
+          <div class="public-hero-gallery">
+            <div class="public-slideshow-frame">
+              <img class="public-slideshow-mark" src="/assets/logo/Genesys_Logo2.svg" alt="">
+              <img id="publicHeroSlideshowImage" class="public-slideshow-image" src="${publicCelaviveSlides[0]}" alt="Celavive event gallery">
+              <div class="public-slideshow-overlay">
+                <div class="public-slideshow-copy">
+                  <span>Complete your skin profile raffle entry</span>
+                  <strong>${escapeHtml(eventData.location)}</strong>
+                  <em>${escapeHtml(eventDateTime)}</em>
+                </div>
+                <div id="publicHeroSlideshowDots" class="public-slideshow-dots" aria-hidden="true"></div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="public-form-shell">
+          ${entriesClosed ? renderPublicCelaviveRaffleClosedCard(eventData, availability) : renderPublicCelaviveRaffleFormCard()}
+        </section>
+      </div>
+    </div>
+  `;
+}
+
+function renderPublicCelaviveRaffleFormCard() {
+  return `
+    <div class="form-card public-form-card">
+      <div class="panel-head">
+        <span class="section-kicker">Raffle Entry</span>
+        <h2>Personalized Skin Profile</h2>
+      </div>
+      <form id="publicCelaviveRaffleForm" class="modern-form celavive-raffle-form">
+        ${renderCelaviveRaffleFields()}
+        <div class="form-submit-row">
+          <button type="submit">Submit Raffle Entry</button>
+          <div id="publicFormStatus" class="status" aria-live="polite"></div>
+        </div>
+      </form>
+      ${renderPoweredFooter('footer-note auth-legal public-form-powered')}
+    </div>
+  `;
+}
+
+function renderPublicCelaviveRaffleClosedCard(eventData, availability) {
+  const isFull = availability && availability.reason === 'full';
+  const titleHtml = isFull
+    ? '<span class="public-closed-title-line">Raffle entries are</span><span class="public-closed-title-line">already full</span>'
+    : '<span class="public-closed-title-line">Raffle entries are</span><span class="public-closed-title-line">paused right now</span>';
+
+  return `
+    <div class="form-card public-form-card public-closed-card">
+      <div class="public-closed-mark" aria-hidden="true">
+        <img src="/assets/logo/Genesys_Logo2.svg" alt="">
+      </div>
+      <span class="section-kicker">${isFull ? 'Entry list full' : 'Entries paused'}</span>
+      <h2>${titleHtml}</h2>
+      <p>
+        Thank you for your interest in ${escapeHtml(eventData.eventType)}. Please contact your host for the next available schedule.
+      </p>
+      <div class="public-closed-event">
+        <strong>${escapeHtml(eventData.location)}</strong>
+        <span>${escapeHtml(eventData.displayDateTime || formatMetricDateTime(eventData.dateTime))}</span>
+      </div>
+    </div>
+  `;
+}
+
+function renderCelaviveRaffleFields() {
+  return `
+    <div class="grid">
+      <div class="field">
+        <label for="name">Name <span class="optional">(Optional)</span></label>
+        <input id="name" name="name" type="text" autocomplete="name">
+      </div>
+      <div class="field">
+        <label for="contactNumber">Contact Number <span class="required">*</span></label>
+        <input id="contactNumber" name="contactNumber" type="tel" inputmode="numeric" placeholder="09XXXXXXXXX" required>
+      </div>
+      <div class="field">
+        <label for="emailAddress">Email Address <span class="required">*</span></label>
+        <input id="emailAddress" name="emailAddress" type="email" autocomplete="email" required>
+      </div>
+      <div class="field">
+        <label for="profession">Profession <span class="required">*</span></label>
+        <select id="profession" name="profession" required>
+          <option value="">Select profession</option>
+          ${renderProfessionOptions()}
+        </select>
+      </div>
+      <div class="field full">
+        <label for="invitedBy">Name of the person who invited you <span class="required">*</span></label>
+        <input id="invitedBy" name="invitedBy" type="text" required>
+      </div>
+    </div>
+    <div class="celavive-questionnaire">
+      ${celaviveRaffleQuestions.map((question, index) => renderCelaviveQuestion(question, index)).join('')}
+    </div>
+  `;
+}
+
+function renderCelaviveQuestion(question, index) {
+  const type = question.type === 'checkbox' ? 'checkbox' : 'radio';
+  const required = type === 'radio' ? ' required' : '';
+
+  return `
+    <fieldset class="celavive-question">
+      <legend>${index + 1}. ${escapeHtml(question.label)} <span class="required">*</span></legend>
+      <div class="celavive-choice-grid">
+        ${question.options
+          .map((option, optionIndex) => {
+            const id = `${question.name}-${optionIndex}`;
+            return `
+              <label class="celavive-choice" for="${escapeAttribute(id)}">
+                <input id="${escapeAttribute(id)}" name="${escapeAttribute(question.name)}" type="${type}" value="${escapeAttribute(option)}"${required}>
+                <span>${escapeHtml(option)}</span>
+              </label>
+            `;
+          })
+          .join('')}
+      </div>
+    </fieldset>
   `;
 }
 
@@ -2967,6 +3330,7 @@ function renderAdminFrame({
 
 function renderEventCard(eventData) {
   const isInBody = isInBodyEvent(eventData);
+  const isCelaviveRaffle = isCelaviveRaffleEvent(eventData);
 
   return `
     <article class="event-card event-card-modern">
@@ -2984,6 +3348,10 @@ function renderEventCard(eventData) {
         ${
           isInBody
             ? ''
+            : isCelaviveRaffle
+              ? `
+                <a href="${escapeAttribute(eventData.celaviveRafflePath)}" target="_blank" rel="noreferrer" class="button-link button-link-secondary">Open Raffle</a>
+              `
             : `
               <a href="${escapeAttribute(eventData.rsvpPath)}" target="_blank" rel="noreferrer" class="button-link button-link-secondary">Open RSVP</a>
               <a href="${escapeAttribute(eventData.attendancePath)}" target="_blank" rel="noreferrer" class="button-link button-link-secondary">Open Attendance</a>
@@ -3214,7 +3582,15 @@ function renderSummaryCard(title, value, caption, tone = '') {
 function summarizeEvents(events) {
   const nextUpcoming = getPrimaryEvent(events);
   const uniqueEventTypes = new Set(events.map((eventData) => eventData.eventType).filter(Boolean)).size;
-  const formsPublished = events.reduce((count, eventData) => count + (eventData.rsvpPath ? 1 : 0) + (eventData.attendancePath ? 1 : 0), 0);
+  const formsPublished = events.reduce(
+    (count, eventData) =>
+      count +
+      (eventData.rsvpPath && !isCelaviveRaffleEvent(eventData) && !isInBodyEvent(eventData) ? 1 : 0) +
+      (eventData.attendancePath && !isCelaviveRaffleEvent(eventData) && !isInBodyEvent(eventData) ? 1 : 0) +
+      (eventData.inBodyPath ? 1 : 0) +
+      (eventData.celaviveRafflePath ? 1 : 0),
+    0
+  );
 
   if (!events.length) {
     return {
@@ -3276,6 +3652,7 @@ function renderSelectedEventQuickPanel(eventData) {
   }
 
   const isInBody = isInBodyEvent(eventData);
+  const isCelaviveRaffle = isCelaviveRaffleEvent(eventData);
 
   return `
     <div class="selected-event-quick-panel">
@@ -3300,6 +3677,17 @@ function renderSelectedEventQuickPanel(eventData) {
                 <span>InBody Responses</span>
               </a>
             `
+            : isCelaviveRaffle
+              ? `
+                <a href="${escapeAttribute(eventData.celaviveRafflePath)}" target="_blank" rel="noreferrer" class="button-link button-link-secondary">
+                  <span class="selected-event-action-icon">${renderEventActionIcon('external')}</span>
+                  <span>Open Raffle</span>
+                </a>
+                <a href="/events/${encodeURIComponent(eventData.eventId)}/celavive-raffle-responses" data-link class="button-link button-link-secondary">
+                  <span class="selected-event-action-icon">${renderEventActionIcon('responses')}</span>
+                  <span>Raffle Responses</span>
+                </a>
+              `
             : `
               <a href="${escapeAttribute(eventData.rsvpPath)}" target="_blank" rel="noreferrer" class="button-link button-link-secondary selected-event-action-rsvp-open">
                 <span class="selected-event-action-icon">${renderEventActionIcon('external')}</span>
@@ -3402,6 +3790,10 @@ function formatDateTimeLocalValue(dateTime) {
 
 function isInBodyEvent(eventData) {
   return INBODY_EVENT_TYPES.includes(String(eventData && eventData.eventType ? eventData.eventType : '').trim());
+}
+
+function isCelaviveRaffleEvent(eventData) {
+  return String(eventData && eventData.eventType ? eventData.eventType : '').trim() === CELAVIVE_RAFFLE_EVENT_TYPE;
 }
 
 function getEventTypeDisplayLabel(type) {
@@ -3997,6 +4389,22 @@ function inBodyColumnFallback() {
     'Slot Label',
     'Booking Status',
     'Updated At'
+  ];
+}
+
+function celaviveRaffleColumnFallback() {
+  return [
+    'Name',
+    'Contact Number',
+    'Email Address',
+    'Profession',
+    'Invited By',
+    'Prospect Score',
+    'Prospect Tier',
+    'Top Skin Concerns',
+    'Desired Result',
+    'Willingness To Invest',
+    'Personalized Experience Interest'
   ];
 }
 
