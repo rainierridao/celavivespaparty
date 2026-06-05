@@ -299,6 +299,7 @@ async function renderRoute() {
       const result = await fetchJson(`/events/${inBodyResponseMatch[1]}/inbody-responses`);
       renderPage(renderResponsesPage('InBody Responses', result.event, result.responses, 'inbody'));
       attachAdminShellHandlers();
+      attachResponseDeleteHandlers(result.event, 'inbody');
       attachInBodyResponseHandlers(result.event);
     } catch (error) {
       renderPage(renderErrorPage('Unable to load InBody responses.', error.message));
@@ -328,6 +329,7 @@ async function renderRoute() {
       const result = await fetchJson(`/events/${celaviveRaffleResponseMatch[1]}/celavive-raffle-responses`);
       renderPage(renderResponsesPage('Celavive Raffle Responses', result.event, result.responses, 'celavive-raffle'));
       attachAdminShellHandlers();
+      attachResponseDeleteHandlers(result.event, 'celavive-raffle');
     } catch (error) {
       renderPage(renderErrorPage('Unable to load Celavive raffle responses.', error.message));
     }
@@ -356,6 +358,7 @@ async function renderRoute() {
       const result = await fetchJson(`/events/${rsvpResponseMatch[1]}/rsvp-responses`);
       renderPage(renderResponsesPage('RSVP Responses', result.event, result.responses, 'rsvp'));
       attachAdminShellHandlers();
+      attachResponseDeleteHandlers(result.event, 'rsvp');
     } catch (error) {
       renderPage(renderErrorPage('Unable to load RSVP responses.', error.message));
     }
@@ -384,6 +387,7 @@ async function renderRoute() {
       const result = await fetchJson(`/events/${attendanceResponseMatch[1]}/attendance-responses`);
       renderPage(renderResponsesPage('Attendance Responses', result.event, result.responses, 'attendance'));
       attachAdminShellHandlers();
+      attachResponseDeleteHandlers(result.event, 'attendance');
     } catch (error) {
       renderPage(renderErrorPage('Unable to load attendance responses.', error.message));
     }
@@ -1509,6 +1513,38 @@ function attachInBodyResponseHandlers(eventData) {
   });
 }
 
+function attachResponseDeleteHandlers(eventData, mode) {
+  document.querySelectorAll('[data-delete-response-row]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const rowNumber = button.getAttribute('data-row-number');
+      const responseName = button.getAttribute('data-response-name') || 'this entry';
+      const confirmed = await showConfirmModal({
+        title: 'Delete this entry?',
+        message: `This removes ${responseName} from the ${getResponseModeLabel(mode)} response sheet.`,
+        confirmLabel: 'Delete Entry',
+        tone: 'danger'
+      });
+
+      if (!confirmed) {
+        return;
+      }
+
+      try {
+        setButtonLoading(button, true, 'Deleting...');
+        await fetchJson(`/events/${eventData.eventId}/responses/${mode}/${rowNumber}`, {
+          method: 'DELETE'
+        });
+        navigate(window.location.pathname, true);
+      } catch (error) {
+        const status = document.getElementById('responseActionStatus');
+        setStatus(status, error.message, 'is-error');
+      } finally {
+        setButtonLoading(button, false, 'Delete');
+      }
+    });
+  });
+}
+
 function attachPublicShowcase() {
   const image = document.getElementById('publicHeroSlideshowImage');
   const dots = document.getElementById('publicHeroSlideshowDots');
@@ -2511,7 +2547,8 @@ function renderResponsesPage(title, eventData, responses, mode) {
         ${
           responses.length
             ? `
-              ${renderTable(columns, responses)}
+              <div id="responseActionStatus" class="status response-action-status" aria-live="polite"></div>
+              ${renderTable(columns, responses, mode)}
               ${mode === 'rsvp' ? renderMobileRsvpResponses(columns, responses) : ''}
               ${mode === 'inbody' && eventData.inBodyMode === 'booking' ? renderInBodyReschedulePanel(eventData, responses) : ''}
             `
@@ -3362,13 +3399,14 @@ function renderEventCard(eventData) {
   `;
 }
 
-function renderTable(columns, rows) {
+function renderTable(columns, rows, mode = '') {
   return `
     <div class="table-wrap">
       <table class="response-table">
         <thead>
           <tr>
             ${columns.map((column) => `<th>${escapeHtml(column)}</th>`).join('')}
+            <th>Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -3377,6 +3415,7 @@ function renderTable(columns, rows) {
               (row) => `
                 <tr>
                   ${columns.map((column) => `<td>${escapeHtml(row[column] || '')}</td>`).join('')}
+                  <td>${renderResponseRowActions(row, mode)}</td>
                 </tr>
               `
             )
@@ -3384,6 +3423,28 @@ function renderTable(columns, rows) {
         </tbody>
       </table>
     </div>
+  `;
+}
+
+function renderResponseRowActions(row, mode) {
+  const rowNumber = row.__rowNumber || '';
+  const responseName = row['Name'] || row['Full Name'] || row['Full Name of Attendee'] || row['Email Address'] || row['Mobile Number'] || 'this entry';
+
+  if (!rowNumber) {
+    return '';
+  }
+
+  return `
+    <button
+      type="button"
+      class="button-link button-link-danger response-delete-button"
+      data-delete-response-row
+      data-row-number="${escapeAttribute(rowNumber)}"
+      data-response-name="${escapeAttribute(responseName)}"
+      data-response-mode="${escapeAttribute(mode)}"
+    >
+      Delete
+    </button>
   `;
 }
 
@@ -4406,6 +4467,26 @@ function celaviveRaffleColumnFallback() {
     'Willingness To Invest',
     'Personalized Experience Interest'
   ];
+}
+
+function getResponseModeLabel(mode) {
+  if (mode === 'rsvp') {
+    return 'RSVP';
+  }
+
+  if (mode === 'attendance') {
+    return 'attendance';
+  }
+
+  if (mode === 'inbody') {
+    return 'InBody';
+  }
+
+  if (mode === 'celavive-raffle') {
+    return 'Celavive raffle';
+  }
+
+  return 'event';
 }
 
 function escapeHtml(value) {
