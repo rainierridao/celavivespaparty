@@ -4,6 +4,7 @@ const LEGACY_INBODY_EVENT_TYPE = 'Free InBody Assessment';
 const INBODY_EVENT_DISPLAY_LABEL = 'Free Wellness Assessment';
 const INBODY_EVENT_TYPES = [INBODY_EVENT_TYPE, LEGACY_INBODY_EVENT_TYPE];
 const CELAVIVE_RAFFLE_EVENT_TYPE = 'Celavive Spa Party - Raffle Entry';
+const BEAUTY_CARAVAN_EVENT_TYPE = 'Beauty Caravan';
 const apiBaseCandidates =
   window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost'
     ? ['/api', '/.netlify/functions/api']
@@ -91,7 +92,7 @@ async function loadConfig() {
   } catch (error) {
     state.config = {
       eventName: 'Celavive Spa Party',
-      eventTypes: ['OPP', 'Celavive Spa Party', CELAVIVE_RAFFLE_EVENT_TYPE, INBODY_EVENT_TYPE],
+      eventTypes: ['OPP', 'Celavive Spa Party', BEAUTY_CARAVAN_EVENT_TYPE, CELAVIVE_RAFFLE_EVENT_TYPE, INBODY_EVENT_TYPE],
       professions: [],
       googleSheetsConfigured: false
     };
@@ -1017,13 +1018,19 @@ function attachCreateEventHandlers() {
   const inBodySlotBuilder = document.getElementById('inBodySlotBuilder');
   const inBodySlotRows = document.getElementById('inBodySlotRows');
   const addInBodySlotButton = form.querySelector('[data-add-inbody-slot]');
+  const beautyCaravanSetup = document.getElementById('beautyCaravanEventSetup');
 
   const syncInBodySetup = () => {
     const isInBody = eventTypeInput && isInBodyEvent({ eventType: eventTypeInput.value });
+    const isBeautyCaravan = eventTypeInput && isBeautyCaravanEvent({ eventType: eventTypeInput.value });
     const isBooking = isInBody && inBodyModeInput && inBodyModeInput.value === 'booking';
 
     if (inBodySetup) {
       inBodySetup.hidden = !isInBody;
+    }
+
+    if (beautyCaravanSetup) {
+      beautyCaravanSetup.hidden = !isBeautyCaravan;
     }
 
     if (!isInBody && inBodyModeInput) {
@@ -1091,6 +1098,7 @@ function attachCreateEventHandlers() {
     const submitButton = form.querySelector('button[type="submit"]');
     const status = document.getElementById('eventStatus');
     const isInBody = isInBodyEvent({ eventType: form.eventType.value });
+    const isBeautyCaravan = isBeautyCaravanEvent({ eventType: form.eventType.value });
     const body = {
       eventType: form.eventType.value,
       location: form.location.value,
@@ -1100,6 +1108,14 @@ function attachCreateEventHandlers() {
     if (isInBody) {
       body.inBodyMode = form.inBodyMode.value;
       body.inBodySlots = body.inBodyMode === 'booking' ? collectInBodySlotRows(form) : [];
+    }
+
+    if (isBeautyCaravan) {
+      body.beautyCaravanSchedule = {
+        date: form.beautyCaravanSlotDate.value,
+        startTime: form.beautyCaravanSlotStart.value,
+        endTime: form.beautyCaravanSlotEnd.value
+      };
     }
 
     setStatus(status, '', '');
@@ -1449,7 +1465,8 @@ function attachRsvpHandlers(eventData) {
           mobileNumber: form.mobileNumber.value,
           profession: form.profession.value,
           invitedBy: form.invitedBy.value,
-          attendanceConfirmation: form.attendanceConfirmation.value
+          attendanceConfirmation: form.attendanceConfirmation.value,
+          slotId: form.slotId ? form.slotId.value : ''
         }
       });
 
@@ -2236,6 +2253,28 @@ function renderCreateEventPage() {
               <label for="location">Location <span class="required">*</span></label>
               <textarea id="location" name="location" placeholder="Boardroom 3, 8th Floor, Mallberry Suites, Cagayan de Oro City" required></textarea>
             </div>
+            <div id="beautyCaravanEventSetup" class="field full beauty-caravan-event-setup" hidden>
+              <div class="inbody-setup-head">
+                <div>
+                  <span class="section-kicker">Beauty Caravan workflow</span>
+                  <h3>Hourly RSVP slots</h3>
+                </div>
+              </div>
+              <div class="grid beauty-caravan-slot-grid">
+                <div class="field">
+                  <label for="beautyCaravanSlotDate">Slot Date <span class="required">*</span></label>
+                  <input id="beautyCaravanSlotDate" name="beautyCaravanSlotDate" type="date">
+                </div>
+                <div class="field">
+                  <label for="beautyCaravanSlotStart">Start Time <span class="required">*</span></label>
+                  <input id="beautyCaravanSlotStart" name="beautyCaravanSlotStart" type="time">
+                </div>
+                <div class="field">
+                  <label for="beautyCaravanSlotEnd">End Time <span class="required">*</span></label>
+                  <input id="beautyCaravanSlotEnd" name="beautyCaravanSlotEnd" type="time">
+                </div>
+              </div>
+            </div>
             <div id="inBodyEventSetup" class="field full inbody-event-setup" hidden>
               <div class="inbody-setup-head">
                 <div>
@@ -2883,9 +2922,12 @@ function renderEventUrlControl({ url, openHref, copyLabel, openLabel }) {
 }
 
 function getRsvpResponseSummary(row) {
+  const slotLabel = row['Slot Label'] || '';
+
   return {
     name: row['Full Name'] || row['Full Name of Attendee'] || 'Unknown attendee',
-    invitedBy: row['Invited By'] || row['Name of the person who invited you'] || 'Not provided'
+    invitedBy: row['Invited By'] || row['Name of the person who invited you'] || 'Not provided',
+    meta: slotLabel ? `Slot: ${slotLabel}` : `Invited by ${row['Invited By'] || row['Name of the person who invited you'] || 'Not provided'}`
   };
 }
 
@@ -2909,7 +2951,7 @@ function renderMobileRsvpResponses(columns, rows) {
               <summary>
                 <span class="mobile-rsvp-response-main">
                   <span class="mobile-rsvp-response-name">${escapeHtml(summary.name)}</span>
-                  <span class="mobile-rsvp-response-invited">Invited by ${escapeHtml(summary.invitedBy)}</span>
+                  <span class="mobile-rsvp-response-invited">${escapeHtml(summary.meta)}</span>
                 </span>
                 <span class="mobile-rsvp-response-open" aria-label="Open full details for row ${index + 1}">
                   <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -2939,18 +2981,24 @@ function renderMobileRsvpResponses(columns, rows) {
 }
 
 function buildResponsePreviewRows(responses, mode) {
-  return responses.slice(0, 3).map((row) => ({
-    name: row['Name'] || row['Full Name'] || row['Full Name of Attendee'] || 'Unknown attendee',
-    metaLabel: mode === 'rsvp' ? 'Invited by' : mode === 'inbody' ? 'Slot' : mode === 'celavive-raffle' ? 'Tier' : 'Profession',
-    metaValue:
-      mode === 'rsvp'
-        ? row['Invited By'] || row['Name of the person who invited you'] || 'Not provided'
-        : mode === 'inbody'
-          ? row['Slot Label'] || row['Booking Status'] || row['InBody Mode'] || 'InBody response'
-        : mode === 'celavive-raffle'
-          ? row['Prospect Tier'] || row['Prospect Score'] || row['Contact Number'] || 'Skin profile'
-        : row['Profession'] || row['Email Address'] || row['Mobile Number'] || 'Attendance registration'
-  }));
+  return responses.slice(0, 3).map((row) => {
+    const hasRsvpSlot = mode === 'rsvp' && row['Slot Label'];
+
+    return {
+      name: row['Name'] || row['Full Name'] || row['Full Name of Attendee'] || 'Unknown attendee',
+      metaLabel: hasRsvpSlot ? 'Slot' : mode === 'rsvp' ? 'Invited by' : mode === 'inbody' ? 'Slot' : mode === 'celavive-raffle' ? 'Tier' : 'Profession',
+      metaValue:
+        hasRsvpSlot
+          ? row['Slot Label']
+          : mode === 'rsvp'
+            ? row['Invited By'] || row['Name of the person who invited you'] || 'Not provided'
+            : mode === 'inbody'
+              ? row['Slot Label'] || row['Booking Status'] || row['InBody Mode'] || 'InBody response'
+          : mode === 'celavive-raffle'
+            ? row['Prospect Tier'] || row['Prospect Score'] || row['Contact Number'] || 'Skin profile'
+          : row['Profession'] || row['Email Address'] || row['Mobile Number'] || 'Attendance registration'
+    };
+  });
 }
 
 function renderResponsePreviewList(rows, mode) {
@@ -3050,7 +3098,7 @@ function renderPublicEventPage(mode, eventData) {
         </section>
 
         <section class="public-form-shell">
-          ${rsvpClosed ? renderPublicRsvpClosedCard(eventData, availability) : renderPublicFormCard(isRsvp)}
+          ${rsvpClosed ? renderPublicRsvpClosedCard(eventData, availability) : renderPublicFormCard(isRsvp, eventData)}
         </section>
       </div>
     </div>
@@ -3296,7 +3344,7 @@ function renderInBodyFields(eventData) {
   `;
 }
 
-function renderPublicFormCard(isRsvp) {
+function renderPublicFormCard(isRsvp, eventData = {}) {
   return `
     <div class="form-card public-form-card">
       <div class="panel-head">
@@ -3306,7 +3354,7 @@ function renderPublicFormCard(isRsvp) {
       </div>
 
       <form id="publicEventForm" class="modern-form">
-        ${isRsvp ? renderRsvpFields() : renderAttendanceFields()}
+        ${isRsvp ? renderRsvpFields(eventData) : renderAttendanceFields()}
         <div class="form-submit-row">
           <button type="submit">${isRsvp ? 'Confirm RSVP' : 'Save Attendance'}</button>
           <div id="publicFormStatus" class="status" aria-live="polite"></div>
@@ -3342,7 +3390,10 @@ function renderPublicRsvpClosedCard(eventData, availability) {
   `;
 }
 
-function renderRsvpFields() {
+function renderRsvpFields(eventData = {}) {
+  const isBeautyCaravan = isBeautyCaravanEvent(eventData);
+  const beautyCaravanSlots = ((eventData.beautyCaravanAvailability && eventData.beautyCaravanAvailability.slots) || eventData.beautyCaravanSlots || []);
+
   return `
     <div class="grid">
       <div class="field full">
@@ -3368,6 +3419,21 @@ function renderRsvpFields() {
         <label for="invitedBy">Name of the person who invited you <span class="required">*</span></label>
         <input id="invitedBy" name="invitedBy" type="text" required>
       </div>
+      ${
+        isBeautyCaravan
+          ? `
+            <div class="field full">
+              <label for="slotId">Preferred Time Slot <span class="required">*</span></label>
+              <select id="slotId" name="slotId" required ${beautyCaravanSlots.length ? '' : 'disabled'}>
+                <option value="">${beautyCaravanSlots.length ? 'Select time slot' : 'No time slots available'}</option>
+                ${beautyCaravanSlots
+                  .map((slot) => `<option value="${escapeAttribute(slot.slotId)}">${escapeHtml(slot.label || formatSlotLabel(slot))}</option>`)
+                  .join('')}
+              </select>
+            </div>
+          `
+          : ''
+      }
       <div class="field full">
         <label for="attendanceConfirmation">Will you be attending? <span class="required">*</span></label>
         <select id="attendanceConfirmation" name="attendanceConfirmation" required>
@@ -4053,6 +4119,10 @@ function isInBodyEvent(eventData) {
 
 function isCelaviveRaffleEvent(eventData) {
   return String(eventData && eventData.eventType ? eventData.eventType : '').trim() === CELAVIVE_RAFFLE_EVENT_TYPE;
+}
+
+function isBeautyCaravanEvent(eventData) {
+  return String(eventData && eventData.eventType ? eventData.eventType : '').trim() === BEAUTY_CARAVAN_EVENT_TYPE;
 }
 
 function getEventTypeDisplayLabel(type) {
