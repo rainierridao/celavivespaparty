@@ -5,6 +5,7 @@ const INBODY_EVENT_DISPLAY_LABEL = 'Free Wellness Assessment';
 const INBODY_EVENT_TYPES = [INBODY_EVENT_TYPE, LEGACY_INBODY_EVENT_TYPE];
 const CELAVIVE_RAFFLE_EVENT_TYPE = 'Celavive Spa Party - Raffle Entry';
 const BEAUTY_CARAVAN_EVENT_TYPE = 'Beauty Caravan';
+const WELLNESS_QUIZ_EVENT_TYPE = 'Wellness Quiz';
 const apiBaseCandidates =
   window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost'
     ? ['/api', '/.netlify/functions/api']
@@ -60,6 +61,17 @@ const celaviveRaffleQuestions = [
   { name: 'willingnessToInvest', label: 'If you found a skincare regimen that truly works for your skin, would you consider investing in it?', options: ['Not right now', 'Maybe', 'Yes, if it fits my needs', 'Definitely'] },
   { name: 'personalizedExperienceInterest', label: 'Would you be interested in a personalized full skincare experience if selected?', options: ['Yes, definitely', 'Maybe', 'Not right now'] }
 ];
+const wellnessQuizQuestions = [
+  {
+    name: 'currentConcerns',
+    label: 'Which of the following concerns do you currently experience? (Check all that apply)',
+    type: 'checkbox',
+    options: ['Low Energy / Easily Tired', 'Poor Sleep', 'Stress or Mental Fatigue', 'Joint Pain', 'Back Pain', 'Muscle Recovery Issues', 'Weight Gain', 'High Blood Pressure', 'High Cholesterol', 'High Blood Sugar', 'Frequent Colds or Low Immunity', 'Digestive Concerns', 'Skin Concerns', 'None of the Above']
+  },
+  { name: 'healthRating', label: 'On a scale of 1-10, how would you rate your current health?', options: ['1-3 Needs Improvement', '4-6 Fair', '7-8 Good', '9-10 Excellent'] },
+  { name: 'healthGoal', label: 'What health goal would you most like to improve in the next 90 days?', options: ['More Energy', 'Better Sleep', 'Weight Management', 'Better Fitness Performance', 'Faster Recovery', 'Stronger Immunity', 'Healthier Skin', 'Better Overall Wellness'] },
+  { name: 'consultationInterest', label: 'Would you be open to receiving a complimentary wellness consultation?', options: ['Yes', 'Maybe', 'Not at the moment'] }
+];
 
 const state = {
   activeApiBase: apiBaseCandidates[0],
@@ -92,7 +104,7 @@ async function loadConfig() {
   } catch (error) {
     state.config = {
       eventName: 'Celavive Spa Party',
-      eventTypes: ['OPP', 'Celavive Spa Party', BEAUTY_CARAVAN_EVENT_TYPE, CELAVIVE_RAFFLE_EVENT_TYPE, INBODY_EVENT_TYPE],
+      eventTypes: ['OPP', 'Celavive Spa Party', BEAUTY_CARAVAN_EVENT_TYPE, CELAVIVE_RAFFLE_EVENT_TYPE, INBODY_EVENT_TYPE, WELLNESS_QUIZ_EVENT_TYPE],
       professions: [],
       googleSheetsConfigured: false
     };
@@ -264,11 +276,15 @@ async function renderRoute() {
       const celaviveRaffleResult = isCelaviveRaffleEvent(eventResult.event)
         ? await fetchJson(`/events/${eventId}/celavive-raffle-responses`)
         : { responses: [] };
+      const wellnessQuizResult = isWellnessQuizEvent(eventResult.event)
+        ? await fetchJson(`/events/${eventId}/wellness-quiz-responses`)
+        : { responses: [] };
       renderPage(renderEventDetailPage(eventResult.event, {
         rsvpResponses: rsvpResult.responses || [],
         attendanceResponses: attendanceResult.responses || [],
         inBodyResponses: inBodyResult.responses || [],
-        celaviveRaffleResponses: celaviveRaffleResult.responses || []
+        celaviveRaffleResponses: celaviveRaffleResult.responses || [],
+        wellnessQuizResponses: wellnessQuizResult.responses || []
       }));
       attachAdminShellHandlers();
       attachEventDetailHandlers(eventResult.event);
@@ -333,6 +349,27 @@ async function renderRoute() {
       attachResponseDeleteHandlers(result.event, 'celavive-raffle');
     } catch (error) {
       renderPage(renderErrorPage('Unable to load Celavive raffle responses.', error.message));
+    }
+
+    return;
+  }
+
+  const wellnessQuizResponseMatch = pathname.match(/^\/events\/([^/]+)\/wellness-quiz-responses$/);
+
+  if (wellnessQuizResponseMatch) {
+    if (!(await guardAuthenticated())) {
+      return;
+    }
+
+    renderLoading('Loading Wellness Quiz responses...');
+
+    try {
+      const result = await fetchJson(`/events/${wellnessQuizResponseMatch[1]}/wellness-quiz-responses`);
+      renderPage(renderResponsesPage('Wellness Quiz Responses', result.event, result.responses, 'wellness-quiz'));
+      attachAdminShellHandlers();
+      attachResponseDeleteHandlers(result.event, 'wellness-quiz');
+    } catch (error) {
+      renderPage(renderErrorPage('Unable to load Wellness Quiz responses.', error.message));
     }
 
     return;
@@ -475,6 +512,30 @@ async function renderRoute() {
       attachCelaviveRaffleHandlers(result.event);
     } catch (error) {
       renderPage(renderErrorPage('Unable to load that Celavive raffle page.', error.message));
+    }
+
+    return;
+  }
+
+  const wellnessQuizMatch = pathname.match(/^\/wellness-quiz\/([^/]+)$/);
+
+  if (wellnessQuizMatch) {
+    renderLoading('Loading wellness check...');
+
+    try {
+      const result = await fetchJson(`/public-events/${wellnessQuizMatch[1]}`);
+
+      if (!isWellnessQuizEvent(result.event)) {
+        renderPage(renderErrorPage('Wellness Quiz unavailable.', 'This event does not have a Wellness Quiz workflow.'));
+        return;
+      }
+
+      renderPage(renderPublicWellnessQuizPage(result.event));
+      attachPublicShowcase();
+      syncDynamicHeaderTitle();
+      attachWellnessQuizHandlers(result.event);
+    } catch (error) {
+      renderPage(renderErrorPage('Unable to load that Wellness Quiz.', error.message));
     }
 
     return;
@@ -1019,10 +1080,13 @@ function attachCreateEventHandlers() {
   const inBodySlotRows = document.getElementById('inBodySlotRows');
   const addInBodySlotButton = form.querySelector('[data-add-inbody-slot]');
   const beautyCaravanSetup = document.getElementById('beautyCaravanEventSetup');
+  const wellnessQuizSetup = document.getElementById('wellnessQuizEventSetup');
+  const wellnessQuizTitleInput = document.getElementById('wellnessQuizTitle');
 
   const syncInBodySetup = () => {
     const isInBody = eventTypeInput && isInBodyEvent({ eventType: eventTypeInput.value });
     const isBeautyCaravan = eventTypeInput && isBeautyCaravanEvent({ eventType: eventTypeInput.value });
+    const isWellnessQuiz = eventTypeInput && isWellnessQuizEvent({ eventType: eventTypeInput.value });
     const isBooking = isInBody && inBodyModeInput && inBodyModeInput.value === 'booking';
 
     if (inBodySetup) {
@@ -1031,6 +1095,14 @@ function attachCreateEventHandlers() {
 
     if (beautyCaravanSetup) {
       beautyCaravanSetup.hidden = !isBeautyCaravan;
+    }
+
+    if (wellnessQuizSetup) {
+      wellnessQuizSetup.hidden = !isWellnessQuiz;
+    }
+
+    if (wellnessQuizTitleInput) {
+      wellnessQuizTitleInput.required = Boolean(isWellnessQuiz);
     }
 
     if (!isInBody && inBodyModeInput) {
@@ -1099,6 +1171,7 @@ function attachCreateEventHandlers() {
     const status = document.getElementById('eventStatus');
     const isInBody = isInBodyEvent({ eventType: form.eventType.value });
     const isBeautyCaravan = isBeautyCaravanEvent({ eventType: form.eventType.value });
+    const isWellnessQuiz = isWellnessQuizEvent({ eventType: form.eventType.value });
     const body = {
       eventType: form.eventType.value,
       location: form.location.value,
@@ -1116,6 +1189,10 @@ function attachCreateEventHandlers() {
         startTime: form.beautyCaravanSlotStart.value,
         endTime: form.beautyCaravanSlotEnd.value
       };
+    }
+
+    if (isWellnessQuiz) {
+      body.wellnessQuizTitle = form.wellnessQuizTitle.value;
     }
 
     setStatus(status, '', '');
@@ -1154,9 +1231,12 @@ function attachEventDetailHandlers(eventData) {
   const inBodyQrOpenLink = document.getElementById('inBodyQrOpenLink');
   const celaviveRaffleQrImage = document.getElementById('celaviveRaffleQrImage');
   const celaviveRaffleQrOpenLink = document.getElementById('celaviveRaffleQrOpenLink');
+  const wellnessQuizQrImage = document.getElementById('wellnessQuizQrImage');
+  const wellnessQuizQrOpenLink = document.getElementById('wellnessQuizQrOpenLink');
   const rsvpUrl = `${window.location.origin}${eventData.rsvpPath}`;
   const inBodyUrl = eventData.inBodyPath ? `${window.location.origin}${eventData.inBodyPath}` : '';
   const celaviveRaffleUrl = eventData.celaviveRafflePath ? `${window.location.origin}${eventData.celaviveRafflePath}` : '';
+  const wellnessQuizUrl = eventData.wellnessQuizPath ? `${window.location.origin}${eventData.wellnessQuizPath}` : '';
 
   if (qrImage) {
     qrImage.src = buildQrUrl(rsvpUrl);
@@ -1194,6 +1274,19 @@ function attachEventDetailHandlers(eventData) {
     celaviveRaffleQrOpenLink.addEventListener('click', (event) => {
       event.preventDefault();
       openBrandedQrTab({ ...eventData, eventLabel: `${eventData.eventLabel} Celavive Raffle` }, celaviveRaffleUrl);
+    });
+  }
+
+  if (wellnessQuizQrImage && wellnessQuizUrl) {
+    wellnessQuizQrImage.src = buildQrUrl(wellnessQuizUrl);
+    wellnessQuizQrImage.alt = `Branded QR code for ${eventData.eventLabel} Wellness Quiz`;
+  }
+
+  if (wellnessQuizQrOpenLink && wellnessQuizUrl) {
+    wellnessQuizQrOpenLink.href = buildQrUrl(wellnessQuizUrl);
+    wellnessQuizQrOpenLink.addEventListener('click', (event) => {
+      event.preventDefault();
+      openBrandedQrTab({ ...eventData, eventLabel: eventData.wellnessQuizTitle }, wellnessQuizUrl);
     });
   }
 
@@ -1596,6 +1689,65 @@ function attachCelaviveRaffleHandlers(eventData) {
       setStatus(status, error.message, 'is-error');
     } finally {
       setButtonLoading(submitButton, false, 'Submit Raffle Entry');
+    }
+  });
+}
+
+function attachWellnessQuizHandlers(eventData) {
+  const form = document.getElementById('publicWellnessQuizForm');
+
+  if (!form) {
+    return;
+  }
+
+  const concernInputs = Array.from(form.querySelectorAll('input[name="currentConcerns"]'));
+  concernInputs.forEach((input) => {
+    input.addEventListener('change', () => {
+      const noneInput = concernInputs.find((item) => item.value === 'None of the Above');
+
+      if (input.value === 'None of the Above' && input.checked) {
+        concernInputs.filter((item) => item !== input).forEach((item) => { item.checked = false; });
+      } else if (input.checked && noneInput) {
+        noneInput.checked = false;
+      }
+    });
+  });
+
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const status = document.getElementById('publicFormStatus');
+    const submitButton = form.querySelector('button[type="submit"]');
+    const currentConcerns = concernInputs.filter((input) => input.checked).map((input) => input.value);
+
+    if (!currentConcerns.length) {
+      setStatus(status, 'Choose at least one current health concern.', 'is-error');
+      return;
+    }
+
+    setStatus(status, '', '');
+
+    try {
+      setButtonLoading(submitButton, true, 'Submitting...');
+      const result = await fetchJson(`/events/${eventData.eventId}/wellness-quiz`, {
+        method: 'POST',
+        body: {
+          name: form.name.value,
+          age: form.age.value,
+          mobileNumber: form.mobileNumber.value,
+          currentConcerns,
+          healthRating: form.healthRating.value,
+          healthGoal: form.healthGoal.value,
+          consultationInterest: form.consultationInterest.value,
+          comments: form.comments.value
+        }
+      });
+
+      form.reset();
+      setStatus(status, result.message, 'is-success');
+    } catch (error) {
+      setStatus(status, error.message, 'is-error');
+    } finally {
+      setButtonLoading(submitButton, false, 'Submit Wellness Check');
     }
   });
 }
@@ -2253,6 +2405,11 @@ function renderCreateEventPage() {
               <label for="location">Location <span class="required">*</span></label>
               <textarea id="location" name="location" placeholder="Boardroom 3, 8th Floor, Mallberry Suites, Cagayan de Oro City" required></textarea>
             </div>
+            <div id="wellnessQuizEventSetup" class="field full" hidden>
+              <label for="wellnessQuizTitle">Wellness Quiz Title <span class="required">*</span></label>
+              <input id="wellnessQuizTitle" name="wellnessQuizTitle" type="text" placeholder="CAMP EVANGELISTA WELLNESS CHECK">
+              <span class="field-help">This title appears at the top of the public wellness check.</span>
+            </div>
             <div id="beautyCaravanEventSetup" class="field full beauty-caravan-event-setup" hidden>
               <div class="inbody-setup-head">
                 <div>
@@ -2359,16 +2516,20 @@ function renderInBodySlotRow(slot = {}) {
 function renderEventDetailPage(eventData, previews = {}) {
   const isInBody = isInBodyEvent(eventData);
   const isCelaviveRaffle = isCelaviveRaffleEvent(eventData);
+  const isWellnessQuiz = isWellnessQuizEvent(eventData);
   const rsvpUrl = `${window.location.origin}${eventData.rsvpPath}`;
   const attendanceUrl = `${window.location.origin}${eventData.attendancePath}`;
   const inBodyUrl = eventData.inBodyPath ? `${window.location.origin}${eventData.inBodyPath}` : '';
   const celaviveRaffleUrl = eventData.celaviveRafflePath ? `${window.location.origin}${eventData.celaviveRafflePath}` : '';
+  const wellnessQuizUrl = eventData.wellnessQuizPath ? `${window.location.origin}${eventData.wellnessQuizPath}` : '';
   const inBodyCount = (previews.inBodyResponses || []).length;
   const celaviveRaffleCount = (previews.celaviveRaffleResponses || []).length;
+  const wellnessQuizCount = (previews.wellnessQuizResponses || []).length;
   const rsvpPreviewRows = buildResponsePreviewRows(previews.rsvpResponses || [], 'rsvp');
   const attendancePreviewRows = buildResponsePreviewRows(previews.attendanceResponses || [], 'attendance');
   const inBodyPreviewRows = buildResponsePreviewRows(previews.inBodyResponses || [], 'inbody');
   const celaviveRafflePreviewRows = buildResponsePreviewRows(previews.celaviveRaffleResponses || [], 'celavive-raffle');
+  const wellnessQuizPreviewRows = buildResponsePreviewRows(previews.wellnessQuizResponses || [], 'wellness-quiz');
 
   return renderAdminFrame({
     activeView: eventData.isArchived ? 'archive' : 'dashboard',
@@ -2392,7 +2553,7 @@ function renderEventDetailPage(eventData, previews = {}) {
                 <p>Use the published links below to invite attendees or register them on-site.</p>
               </div>
               ${
-                eventData.isArchived || isInBody
+                eventData.isArchived || isInBody || isWellnessQuiz
                   ? ''
                   : `
                     <button id="openRsvpSettingsButton" type="button" class="button-link button-link-secondary rsvp-settings-open-button">
@@ -2403,7 +2564,7 @@ function renderEventDetailPage(eventData, previews = {}) {
             </div>
             <div class="detail-link-grid">
               ${
-                isInBody || isCelaviveRaffle
+                isInBody || isCelaviveRaffle || isWellnessQuiz
                   ? ''
                   : `
                     <div class="link-stack modern-link-stack">
@@ -2456,11 +2617,26 @@ function renderEventDetailPage(eventData, previews = {}) {
                   `
                   : ''
               }
+              ${
+                isWellnessQuiz
+                  ? `
+                    <div class="link-stack modern-link-stack">
+                      <label>Wellness Quiz Link</label>
+                      ${renderEventUrlControl({
+                        url: wellnessQuizUrl,
+                        openHref: eventData.wellnessQuizPath,
+                        copyLabel: 'Wellness Quiz link',
+                        openLabel: 'Open Wellness Quiz'
+                      })}
+                    </div>
+                  `
+                  : ''
+              }
             </div>
             <div id="eventActionStatus" class="status event-link-status" aria-live="polite"></div>
             <div class="event-link-grid detail-response-grid detail-response-grid-inline">
               ${
-                isInBody || isCelaviveRaffle
+                isInBody || isCelaviveRaffle || isWellnessQuiz
                   ? ''
                   : `
                     <a href="/events/${encodeURIComponent(eventData.eventId)}/rsvp-responses" data-link class="action-card action-card-strong">
@@ -2509,13 +2685,27 @@ function renderEventDetailPage(eventData, previews = {}) {
                   `
                   : ''
               }
+              ${
+                isWellnessQuiz
+                  ? `
+                    <a href="/events/${encodeURIComponent(eventData.eventId)}/wellness-quiz-responses" data-link class="action-card">
+                      <div class="detail-response-card-head">
+                        <strong>View all Wellness Quiz responses</strong>
+                        <span class="detail-response-count">${wellnessQuizCount}</span>
+                      </div>
+                      <span>Latest wellness check submissions.</span>
+                      ${renderResponsePreviewList(wellnessQuizPreviewRows, 'wellness-quiz')}
+                    </a>
+                  `
+                  : ''
+              }
             </div>
           </section>
         </div>
 
         <aside class="detail-side-stack">
           ${
-            isInBody || isCelaviveRaffle
+            isInBody || isCelaviveRaffle || isWellnessQuiz
               ? ''
               : `
                 <section class="workspace-panel qr-card${eventData.isArchived ? '' : ' qr-card-active'}">
@@ -2588,9 +2778,27 @@ function renderEventDetailPage(eventData, previews = {}) {
               `
               : ''
           }
+          ${
+            isWellnessQuiz
+              ? `
+                <section class="workspace-panel qr-card qr-card-active">
+                  <span class="section-kicker">Wellness Quiz QR</span>
+                  <h3>Wellness Check QR code</h3>
+                  <p>Share this QR so guests can complete the wellness questionnaire.</p>
+                  <div class="qr-panel">
+                    <div class="qr-image-stack">
+                      <img id="wellnessQuizQrImage" class="qr-image" alt="Wellness Quiz QR code">
+                      <img class="qr-brand-mark" src="/assets/logo/Genesys_Logo2.svg" alt="" aria-hidden="true">
+                    </div>
+                  </div>
+                  <a id="wellnessQuizQrOpenLink" class="button-link button-link-secondary" target="_blank" rel="noreferrer" href="${escapeAttribute(buildQrUrl(wellnessQuizUrl))}">Open QR in new tab</a>
+                </section>
+              `
+              : ''
+          }
         </aside>
       </section>
-      ${eventData.isArchived || isInBody ? '' : renderRsvpSettingsModal(eventData)}
+      ${eventData.isArchived || isInBody || isWellnessQuiz ? '' : renderRsvpSettingsModal(eventData)}
     `
   });
 }
@@ -2986,7 +3194,7 @@ function buildResponsePreviewRows(responses, mode) {
 
     return {
       name: row['Name'] || row['Full Name'] || row['Full Name of Attendee'] || 'Unknown attendee',
-      metaLabel: hasRsvpSlot ? 'Slot' : mode === 'rsvp' ? 'Invited by' : mode === 'inbody' ? 'Slot' : mode === 'celavive-raffle' ? 'Tier' : 'Profession',
+      metaLabel: hasRsvpSlot ? 'Slot' : mode === 'rsvp' ? 'Invited by' : mode === 'inbody' ? 'Slot' : mode === 'celavive-raffle' ? 'Tier' : mode === 'wellness-quiz' ? 'Rating' : 'Profession',
       metaValue:
         hasRsvpSlot
           ? row['Slot Label']
@@ -2996,6 +3204,8 @@ function buildResponsePreviewRows(responses, mode) {
               ? row['Slot Label'] || row['Booking Status'] || row['InBody Mode'] || 'InBody response'
           : mode === 'celavive-raffle'
             ? row['Prospect Tier'] || row['Prospect Score'] || row['Contact Number'] || 'Skin profile'
+          : mode === 'wellness-quiz'
+            ? row['Health Rating'] || row['Mobile Number'] || 'Wellness check'
           : row['Profession'] || row['Email Address'] || row['Mobile Number'] || 'Attendance registration'
     };
   });
@@ -3006,7 +3216,7 @@ function renderResponsePreviewList(rows, mode) {
     return `
       <div class="response-preview-list is-empty">
         <div class="response-preview-item">
-          <span class="response-preview-name">No ${mode === 'rsvp' ? 'RSVP' : mode === 'inbody' ? 'InBody' : mode === 'celavive-raffle' ? 'Celavive raffle' : 'attendance'} responses yet</span>
+          <span class="response-preview-name">No ${mode === 'rsvp' ? 'RSVP' : mode === 'inbody' ? 'InBody' : mode === 'celavive-raffle' ? 'Celavive raffle' : mode === 'wellness-quiz' ? 'Wellness Quiz' : 'attendance'} responses yet</span>
           <span class="response-preview-meta">Preview appears here once responses come in.</span>
         </div>
       </div>
@@ -3047,6 +3257,8 @@ function getVisibleResponseColumns(mode, responses) {
       ? inBodyColumnFallback()
       : mode === 'celavive-raffle'
         ? celaviveRaffleColumnFallback()
+        : mode === 'wellness-quiz'
+          ? wellnessQuizColumnFallback()
         : attendanceColumnFallback();
   const sourceColumns = responses.length ? Object.keys(responses[0]) : fallbackColumns;
   const visibleColumns = sourceColumns.filter((column) => !hiddenColumns.has(column));
@@ -3191,6 +3403,79 @@ function renderPublicCelaviveRafflePage(eventData) {
           ${entriesClosed ? renderPublicCelaviveRaffleClosedCard(eventData, availability) : renderPublicCelaviveRaffleFormCard()}
         </section>
       </div>
+    </div>
+  `;
+}
+
+function renderPublicWellnessQuizPage(eventData) {
+  const eventDateTime = eventData.displayDateTime || formatMetricDateTime(eventData.dateTime);
+
+  return `
+    <div class="page public-page">
+      <div class="public-shell-modern">
+        <section class="public-hero-panel">
+          <div class="public-hero-copy">
+            <h1 data-dynamic-title>${escapeHtml(eventData.wellnessQuizTitle)}</h1>
+            <p class="lede">Complete this brief wellness check to help us understand your current health goals.</p>
+          </div>
+          <div class="public-hero-gallery">
+            <div class="public-slideshow-frame">
+              <img class="public-slideshow-mark" src="/assets/logo/Genesys_Logo2.svg" alt="">
+              <img id="publicHeroSlideshowImage" class="public-slideshow-image" src="${publicInBodySlides[0]}" alt="Wellness check gallery" data-slideshow="inbody">
+              <div class="public-slideshow-overlay">
+                <div class="public-slideshow-copy">
+                  <span>Take a moment for your wellness</span>
+                  <strong>${escapeHtml(eventData.location)}</strong>
+                  <em>${escapeHtml(eventDateTime)}</em>
+                </div>
+                <div id="publicHeroSlideshowDots" class="public-slideshow-dots" aria-hidden="true"></div>
+              </div>
+            </div>
+          </div>
+        </section>
+        <section class="public-form-shell">
+          <div class="form-card public-form-card">
+            <div class="panel-head">
+              <span class="section-kicker">Wellness Check</span>
+              <h2>${escapeHtml(eventData.wellnessQuizTitle)}</h2>
+            </div>
+            <form id="publicWellnessQuizForm" class="modern-form celavive-raffle-form">
+              ${renderWellnessQuizFields()}
+              <div class="form-submit-row">
+                <button type="submit">Submit Wellness Check</button>
+                <div id="publicFormStatus" class="status" aria-live="polite"></div>
+              </div>
+            </form>
+            ${renderPoweredFooter('footer-note auth-legal public-form-powered')}
+          </div>
+        </section>
+      </div>
+    </div>
+  `;
+}
+
+function renderWellnessQuizFields() {
+  return `
+    <div class="grid">
+      <div class="field full">
+        <label for="name">Name <span class="required">*</span></label>
+        <input id="name" name="name" type="text" autocomplete="name" required>
+      </div>
+      <div class="field">
+        <label for="age">Age <span class="required">*</span></label>
+        <input id="age" name="age" type="number" inputmode="numeric" min="1" max="120" step="1" required>
+      </div>
+      <div class="field">
+        <label for="mobileNumber">Mobile Number <span class="required">*</span></label>
+        <input id="mobileNumber" name="mobileNumber" type="tel" inputmode="numeric" placeholder="09XXXXXXXXX" required>
+      </div>
+    </div>
+    <div class="celavive-questionnaire">
+      ${wellnessQuizQuestions.map((question, index) => renderCelaviveQuestion(question, index)).join('')}
+    </div>
+    <div class="field full">
+      <label for="comments">Comments / Health Concerns <span class="optional">(Optional)</span></label>
+      <textarea id="comments" name="comments" placeholder="Share any additional comments or health concerns"></textarea>
     </div>
   `;
 }
@@ -3531,6 +3816,7 @@ function renderAdminFrame({
 function renderEventCard(eventData) {
   const isInBody = isInBodyEvent(eventData);
   const isCelaviveRaffle = isCelaviveRaffleEvent(eventData);
+  const isWellnessQuiz = isWellnessQuizEvent(eventData);
 
   return `
     <article class="event-card event-card-modern">
@@ -3552,6 +3838,8 @@ function renderEventCard(eventData) {
               ? `
                 <a href="${escapeAttribute(eventData.celaviveRafflePath)}" target="_blank" rel="noreferrer" class="button-link button-link-secondary">Open Raffle</a>
               `
+            : isWellnessQuiz
+              ? `<a href="${escapeAttribute(eventData.wellnessQuizPath)}" target="_blank" rel="noreferrer" class="button-link button-link-secondary">Open Wellness Quiz</a>`
             : `
               <a href="${escapeAttribute(eventData.rsvpPath)}" target="_blank" rel="noreferrer" class="button-link button-link-secondary">Open RSVP</a>
               <a href="${escapeAttribute(eventData.attendancePath)}" target="_blank" rel="noreferrer" class="button-link button-link-secondary">Open Attendance</a>
@@ -3910,10 +4198,11 @@ function summarizeEvents(events) {
   const formsPublished = events.reduce(
     (count, eventData) =>
       count +
-      (eventData.rsvpPath && !isCelaviveRaffleEvent(eventData) && !isInBodyEvent(eventData) ? 1 : 0) +
-      (eventData.attendancePath && !isCelaviveRaffleEvent(eventData) && !isInBodyEvent(eventData) ? 1 : 0) +
+      (eventData.rsvpPath && !isCelaviveRaffleEvent(eventData) && !isInBodyEvent(eventData) && !isWellnessQuizEvent(eventData) ? 1 : 0) +
+      (eventData.attendancePath && !isCelaviveRaffleEvent(eventData) && !isInBodyEvent(eventData) && !isWellnessQuizEvent(eventData) ? 1 : 0) +
       (eventData.inBodyPath ? 1 : 0) +
-      (eventData.celaviveRafflePath ? 1 : 0),
+      (eventData.celaviveRafflePath ? 1 : 0) +
+      (eventData.wellnessQuizPath ? 1 : 0),
     0
   );
 
@@ -3978,6 +4267,7 @@ function renderSelectedEventQuickPanel(eventData) {
 
   const isInBody = isInBodyEvent(eventData);
   const isCelaviveRaffle = isCelaviveRaffleEvent(eventData);
+  const isWellnessQuiz = isWellnessQuizEvent(eventData);
 
   return `
     <div class="selected-event-quick-panel">
@@ -4011,6 +4301,17 @@ function renderSelectedEventQuickPanel(eventData) {
                 <a href="/events/${encodeURIComponent(eventData.eventId)}/celavive-raffle-responses" data-link class="button-link button-link-secondary">
                   <span class="selected-event-action-icon">${renderEventActionIcon('responses')}</span>
                   <span>Raffle Responses</span>
+                </a>
+              `
+            : isWellnessQuiz
+              ? `
+                <a href="${escapeAttribute(eventData.wellnessQuizPath)}" target="_blank" rel="noreferrer" class="button-link button-link-secondary">
+                  <span class="selected-event-action-icon">${renderEventActionIcon('external')}</span>
+                  <span>Open Wellness Quiz</span>
+                </a>
+                <a href="/events/${encodeURIComponent(eventData.eventId)}/wellness-quiz-responses" data-link class="button-link button-link-secondary">
+                  <span class="selected-event-action-icon">${renderEventActionIcon('responses')}</span>
+                  <span>Quiz Responses</span>
                 </a>
               `
             : `
@@ -4123,6 +4424,10 @@ function isCelaviveRaffleEvent(eventData) {
 
 function isBeautyCaravanEvent(eventData) {
   return String(eventData && eventData.eventType ? eventData.eventType : '').trim() === BEAUTY_CARAVAN_EVENT_TYPE;
+}
+
+function isWellnessQuizEvent(eventData) {
+  return String(eventData && eventData.eventType ? eventData.eventType : '').trim() === WELLNESS_QUIZ_EVENT_TYPE;
 }
 
 function getEventTypeDisplayLabel(type) {
@@ -4733,6 +5038,19 @@ function celaviveRaffleColumnFallback() {
   ];
 }
 
+function wellnessQuizColumnFallback() {
+  return [
+    'Name',
+    'Age',
+    'Mobile Number',
+    'Current Concerns',
+    'Health Rating',
+    '90-Day Health Goal',
+    'Consultation Interest',
+    'Comments / Health Concerns'
+  ];
+}
+
 function getResponseModeLabel(mode) {
   if (mode === 'rsvp') {
     return 'RSVP';
@@ -4748,6 +5066,10 @@ function getResponseModeLabel(mode) {
 
   if (mode === 'celavive-raffle') {
     return 'Celavive raffle';
+  }
+
+  if (mode === 'wellness-quiz') {
+    return 'Wellness Quiz';
   }
 
   return 'event';

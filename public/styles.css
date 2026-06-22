@@ -1177,6 +1177,12 @@ button:disabled {
   grid-column: 1 / -1;
 }
 
+.field-help {
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
 label {
   font-size: 0.9rem;
   font-weight: 700;
