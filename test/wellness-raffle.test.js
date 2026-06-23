@@ -7,16 +7,50 @@ const validConfig = {
   title: 'Spin to Win',
   losingLabel: 'Thank you for playing',
   losingColor: '#7457d9',
+  losingSliceCount: 6,
   prizes: [
-    { id: 'prize_one', label: 'Prize One', color: '#e05a9d', quantity: 2, chance: 60 },
-    { id: 'prize_two', label: 'Prize Two', color: '#f2a83b', quantity: 3, chance: 40 }
+    { id: 'prize_one', label: 'Prize One', color: '#e05a9d', quantity: 2, chance: 60, visualSliceCount: 3 },
+    { id: 'prize_two', label: 'Prize Two', color: '#f2a83b', quantity: 3, chance: 40, visualSliceCount: 2 }
   ]
 };
 
 test('accepts prize shares totaling 100 percent of the winning pool', () => {
   const config = __test.normalizeWellnessRaffleConfig(validConfig);
   assert.equal(config.enabled, true);
+  assert.equal(config.losingSliceCount, 6);
+  assert.deepEqual(config.prizes.map((prize) => prize.visualSliceCount), [3, 2]);
   assert.equal(config.prizes.reduce((sum, prize) => sum + prize.chance, 0), 100);
+});
+
+test('accepts automatic losing slice count for existing configs', () => {
+  const { losingSliceCount, ...legacyConfig } = validConfig;
+  const config = __test.normalizeWellnessRaffleConfig(legacyConfig);
+  assert.equal(config.losingSliceCount, 0);
+});
+
+test('rejects invalid losing slice counts', () => {
+  assert.throws(
+    () => __test.normalizeWellnessRaffleConfig({ ...validConfig, losingSliceCount: 25 }),
+    /slice count/
+  );
+});
+
+test('defaults missing prize visual slice counts to one', () => {
+  const config = __test.normalizeWellnessRaffleConfig({
+    ...validConfig,
+    prizes: validConfig.prizes.map(({ visualSliceCount, ...prize }) => prize)
+  });
+  assert.deepEqual(config.prizes.map((prize) => prize.visualSliceCount), [1, 1]);
+});
+
+test('rejects invalid prize visual slice counts', () => {
+  assert.throws(
+    () => __test.normalizeWellnessRaffleConfig({
+      ...validConfig,
+      prizes: [{ ...validConfig.prizes[0], chance: 100, visualSliceCount: 0 }]
+    }),
+    /wheel slices/
+  );
 });
 
 test('rejects prize shares that do not total 100 percent', () => {

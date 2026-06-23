@@ -108,7 +108,7 @@
 
 .wellness-prize-row {
   display: grid;
-  grid-template-columns: minmax(180px, 2fr) 90px minmax(90px, .7fr) minmax(110px, .8fr) auto;
+  grid-template-columns: minmax(170px, 2fr) 88px minmax(86px, .65fr) minmax(110px, .8fr) minmax(86px, .65fr) auto;
   align-items: end;
   gap: 12px;
   padding: 16px;
@@ -153,6 +153,54 @@
   opacity: .5;
 }
 
+.wellness-raffle-preview-panel {
+  display: grid;
+  gap: 16px;
+  padding: 18px;
+  border: 1px solid rgba(193, 205, 232, 0.9);
+  border-radius: 20px;
+  background:
+    radial-gradient(circle at top left, rgba(86, 92, 242, .08), transparent 34%),
+    #fbfcff;
+}
+
+.wellness-raffle-preview-copy {
+  display: flex;
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.wellness-raffle-preview-copy strong {
+  color: #2f253b;
+  font-size: 1rem;
+}
+
+.wellness-raffle-preview-copy span {
+  max-width: 520px;
+  color: #6e7891;
+  font-size: .86rem;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.wellness-raffle-preview {
+  display: grid;
+  justify-items: center;
+}
+
+.wellness-raffle-preview .empty-state {
+  width: 100%;
+  margin: 0;
+  padding: 18px;
+  border: 1px dashed rgba(148, 161, 193, .9);
+  border-radius: 16px;
+  background: rgba(255,255,255,.72);
+  color: #6e7891;
+  font-weight: 800;
+  text-align: center;
+}
+
 .response-table td:last-child {
   min-width: 130px;
 }
@@ -169,8 +217,36 @@
   text-align: center;
 }
 
+.wellness-wheel-experience.is-preview {
+  width: 100%;
+  grid-template-columns: 1fr;
+  align-items: center;
+  justify-items: center;
+  gap: 16px;
+  text-align: center;
+}
+
 .wellness-wheel-heading {
   width: 100%;
+}
+
+.wellness-wheel-experience.is-preview .wellness-wheel-heading,
+.wellness-wheel-experience.is-preview .wellness-wheel-legend {
+  grid-column: auto;
+}
+
+.wellness-wheel-experience.is-preview .wellness-wheel-heading {
+  max-width: 640px;
+  align-self: auto;
+}
+
+.wellness-wheel-experience.is-preview .wellness-wheel-wrap {
+  grid-row: auto;
+  width: min(430px, 100%);
+}
+
+.wellness-wheel-experience.is-preview .wellness-wheel-heading h2 {
+  margin-bottom: 0;
 }
 
 .wellness-wheel-heading p {
@@ -218,7 +294,11 @@
   transition: transform 4s cubic-bezier(.12, .68, .13, 1);
 }
 
-.wellness-spin-wheel > span {
+.wellness-wheel-center {
+  position: absolute;
+  inset: 50%;
+  z-index: 2;
+  transform: translate(-50%, -50%);
   display: grid;
   place-items: center;
   width: 31%;
@@ -233,11 +313,48 @@
   letter-spacing: .1em;
 }
 
+.wellness-wheel-slice-label {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 1;
+  width: 0;
+  height: 0;
+  transform: rotate(var(--slice-angle)) translateY(calc(-1 * min(112px, 23vw)));
+  transform-origin: center;
+  pointer-events: none;
+}
+
+.wellness-wheel-slice-label span {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: min(25vw, 108px);
+  color: var(--label-color, #ffffff);
+  font-size: clamp(.54rem, 1.7vw, .82rem);
+  font-weight: 900;
+  line-height: 1.02;
+  text-align: center;
+  text-shadow: var(--label-shadow, 0 2px 4px rgba(0,0,0,.36));
+  transform: translate(-50%, -50%) rotate(var(--label-rotation)) translateY(24%);
+  transform-origin: center;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow-wrap: break-word;
+}
+
 .wellness-wheel-legend {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
   gap: 8px 14px;
+}
+
+.wellness-wheel-experience.is-preview .wellness-wheel-legend {
+  align-self: auto;
+  justify-content: center;
 }
 
 .wellness-wheel-legend span {
@@ -271,6 +388,26 @@
 }
 
 @media (max-width: 760px) {
+  .wellness-wheel-experience.is-preview {
+    grid-template-columns: 1fr;
+    text-align: center;
+  }
+
+  .wellness-wheel-experience.is-preview .wellness-wheel-heading,
+  .wellness-wheel-experience.is-preview .wellness-wheel-legend,
+  .wellness-wheel-experience.is-preview .wellness-wheel-wrap {
+    grid-column: auto;
+    grid-row: auto;
+  }
+
+  .wellness-wheel-experience.is-preview .wellness-wheel-legend {
+    justify-content: center;
+  }
+
+  .wellness-raffle-preview-copy {
+    flex-direction: column;
+  }
+
   .wellness-prize-row {
     grid-template-columns: minmax(0, 1fr) minmax(84px, .45fr);
   }
@@ -292,6 +429,17 @@
   .wellness-prize-heading-actions {
     align-items: stretch;
     flex-direction: column;
+  }
+}
+
+@media (max-width: 520px) {
+  .wellness-wheel-slice-label {
+    transform: rotate(var(--slice-angle)) translateY(calc(-1 * min(82px, 20vw)));
+  }
+
+  .wellness-wheel-slice-label span {
+    width: min(26vw, 88px);
+    font-size: clamp(.5rem, 2.5vw, .72rem);
   }
 }
 

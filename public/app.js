@@ -1338,6 +1338,44 @@ function attachEventDetailHandlers(eventData) {
   const closeRsvpSettingsButtons = Array.from(document.querySelectorAll('[data-close-rsvp-settings]'));
   const managementStatus = document.getElementById('eventManagementStatus');
 
+  const readWellnessRaffleDraft = () => {
+    if (!wellnessRaffleForm || !wellnessPrizeList) return null;
+    const rawPrizes = [...wellnessPrizeList.querySelectorAll('[data-wellness-prize]')].map((row) => ({
+      id: row.dataset.prizeId || '',
+      label: row.querySelector('[data-prize-label]')?.value.trim() || 'Prize',
+      color: row.querySelector('[data-prize-color]')?.value || '#e05a9d',
+      chance: Math.max(0, Number(row.querySelector('[data-prize-chance]')?.value) || 0),
+      visualSliceCount: Math.max(1, Number(row.querySelector('[data-prize-visual-slices]')?.value) || 1)
+    }));
+    const totalShare = rawPrizes.reduce((sum, prize) => sum + prize.chance, 0);
+    return {
+      enabled: document.getElementById('wellnessRaffleEnabled')?.checked || false,
+      title: document.getElementById('wellnessRaffleTitle')?.value.trim() || 'Spin to Win',
+      losingLabel: document.getElementById('wellnessRaffleLosingLabel')?.value.trim() || 'Better luck next time',
+      losingColor: document.getElementById('wellnessRaffleLosingColor')?.value || '#7457d9',
+      losingSliceCount: Math.max(0, Number(document.getElementById('wellnessRaffleLosingSliceCount')?.value) || 0),
+      soldOut: false,
+      prizes: rawPrizes
+        .filter((prize) => prize.chance > 0)
+        .map((prize) => ({
+          ...prize,
+          available: true,
+          effectiveChance: totalShare > 0 ? (prize.chance / totalShare) * 40 : 0
+        }))
+    };
+  };
+
+  const updateWellnessRafflePreview = () => {
+    const preview = document.getElementById('wellnessRafflePreview');
+    if (!preview) return;
+    const draft = readWellnessRaffleDraft();
+    if (!draft || !draft.prizes.length) {
+      preview.innerHTML = '<p class="empty-state">Add at least one prize with a winning-pool share to preview the wheel.</p>';
+      return;
+    }
+    preview.innerHTML = renderWellnessWheel(draft, { preview: true });
+  };
+
   const updateWellnessChanceTotal = () => {
     const totalElement = document.getElementById('wellnessPrizeChanceTotal');
     if (!totalElement || !wellnessPrizeList) return;
@@ -1345,6 +1383,7 @@ function attachEventDetailHandlers(eventData) {
       .reduce((sum, input) => sum + (Number(input.value) || 0), 0);
     totalElement.textContent = `${Math.round(total * 100) / 100}% of 100% winning pool`;
     totalElement.classList.toggle('is-valid', Math.abs(total - 100) < 0.001);
+    updateWellnessRafflePreview();
   };
 
   if (wellnessPrizeList) {
@@ -1386,6 +1425,11 @@ function attachEventDetailHandlers(eventData) {
     });
   }
 
+  if (wellnessRaffleForm) {
+    wellnessRaffleForm.addEventListener('input', updateWellnessRafflePreview);
+    updateWellnessRafflePreview();
+  }
+
   if (wellnessRaffleForm && wellnessPrizeList) {
     wellnessRaffleForm.addEventListener('submit', async (event) => {
       event.preventDefault();
@@ -1396,7 +1440,8 @@ function attachEventDetailHandlers(eventData) {
         label: row.querySelector('[data-prize-label]').value,
         color: row.querySelector('[data-prize-color]').value,
         quantity: Number(row.querySelector('[data-prize-quantity]').value),
-        chance: Number(row.querySelector('[data-prize-chance]').value)
+        chance: Number(row.querySelector('[data-prize-chance]').value),
+        visualSliceCount: Number(row.querySelector('[data-prize-visual-slices]').value) || 1
       }));
       setStatus(status, '', '');
       try {
@@ -1410,6 +1455,7 @@ function attachEventDetailHandlers(eventData) {
               title: document.getElementById('wellnessRaffleTitle').value,
               losingLabel: document.getElementById('wellnessRaffleLosingLabel').value,
               losingColor: document.getElementById('wellnessRaffleLosingColor').value,
+              losingSliceCount: Number(document.getElementById('wellnessRaffleLosingSliceCount').value) || 0,
               prizes
             }
           }
@@ -2945,6 +2991,7 @@ function renderWellnessRaffleEditor(eventData) {
     title: 'Spin to Win',
     losingLabel: 'Better luck next time',
     losingColor: '#7457d9',
+    losingSliceCount: 0,
     prizes: []
   };
   const prizes = config.prizes.length ? config.prizes : [
@@ -2980,6 +3027,11 @@ function renderWellnessRaffleEditor(eventData) {
             <label for="wellnessRaffleLosingColor">Losing slice color</label>
             <input id="wellnessRaffleLosingColor" type="color" value="${escapeAttribute(config.losingColor)}">
           </div>
+          <div class="field">
+            <label for="wellnessRaffleLosingSliceCount">Better luck slices</label>
+            <input id="wellnessRaffleLosingSliceCount" type="number" min="0" max="24" step="1" value="${escapeAttribute(config.losingSliceCount || 0)}">
+            <small>Use 0 for auto. This changes only how the losing chance is displayed.</small>
+          </div>
         </div>
         <div class="wellness-prize-heading">
           <strong>Winning prizes</strong>
@@ -2992,6 +3044,13 @@ function renderWellnessRaffleEditor(eventData) {
           ${prizes.map((prize) => renderWellnessPrizeEditorRow(prize)).join('')}
         </div>
         <button id="addWellnessPrizeButton" type="button" class="button-link button-link-secondary">Add Prize</button>
+        <section class="wellness-raffle-preview-panel" aria-label="Spin wheel preview">
+          <div class="wellness-raffle-preview-copy">
+            <strong>Preview before saving</strong>
+            <span>This updates as you edit. The real spin result is still chosen by the server after submission.</span>
+          </div>
+          <div id="wellnessRafflePreview" class="wellness-raffle-preview"></div>
+        </section>
         <div class="wellness-raffle-form-actions">
           <div id="wellnessRaffleSettingsStatus" class="status" aria-live="polite"></div>
           <button type="submit">Save Wheel</button>
@@ -3020,6 +3079,10 @@ function renderWellnessPrizeEditorRow(prize = {}) {
       <div class="field">
         <label>Winning-pool share</label>
         <div class="percentage-input"><input data-prize-chance type="number" min="0.01" max="100" step="0.01" required value="${escapeAttribute(prize.chance || '')}"><span>%</span></div>
+      </div>
+      <div class="field">
+        <label>Wheel slices</label>
+        <input data-prize-visual-slices type="number" min="1" max="24" step="1" required value="${escapeAttribute(prize.visualSliceCount || 1)}">
       </div>
       <button type="button" class="wellness-prize-remove" data-remove-wellness-prize ${awarded ? 'disabled title="Awarded prizes cannot be deleted"' : ''} aria-label="Remove prize">Remove</button>
       ${awarded ? `<small>${awarded} awarded · ${Number(prize.remaining || 0)} remaining</small>` : ''}
@@ -3683,38 +3746,131 @@ function renderPublicWellnessQuizPage(eventData) {
 
 function buildWellnessWheelSegments(raffle) {
   const prizes = (raffle.prizes || []).filter((prize) => prize.available && Number(prize.effectiveChance) > 0);
-  return [
-    { id: '', label: raffle.losingLabel, color: raffle.losingColor, chance: 60 },
-    ...prizes.map((prize) => ({ ...prize, chance: Number(prize.effectiveChance) }))
+  if (!prizes.length) {
+    return [{ id: '', visualId: 'lose_0', type: 'lose', label: raffle.losingLabel, color: raffle.losingColor, chance: 100 }];
+  }
+  const losingSliceCount = Math.max(1, Math.min(24, Math.floor(Number(raffle.losingSliceCount || prizes.length))));
+  const losingSliceChance = 60 / losingSliceCount;
+  const visualGroups = [
+    {
+      key: 'lose',
+      remaining: losingSliceCount,
+      total: losingSliceCount,
+      makeSegment: (sliceIndex) => ({
+        id: '',
+        visualId: `lose_${sliceIndex}`,
+        type: 'lose',
+        label: raffle.losingLabel,
+        color: raffle.losingColor,
+        chance: losingSliceChance
+      })
+    },
+    ...prizes.map((prize, prizeIndex) => {
+      const sliceCount = Math.max(1, Math.min(24, Math.floor(Number(prize.visualSliceCount || 1))));
+      const chance = Number(prize.effectiveChance) / sliceCount;
+      return {
+        key: prize.id || `prize_${prizeIndex}`,
+        remaining: sliceCount,
+        total: sliceCount,
+        makeSegment: (sliceIndex) => ({
+          ...prize,
+          type: 'prize',
+          visualId: `${prize.id || `prize_${prizeIndex}`}_${sliceIndex}`,
+          chance
+        })
+      };
+    })
   ];
+  const totalSlices = visualGroups.reduce((sum, group) => sum + group.total, 0);
+  const placed = new Map(visualGroups.map((group) => [group.key, 0]));
+  const segments = [];
+  for (let slot = 0; slot < totalSlices; slot += 1) {
+    const group = visualGroups
+      .filter((item) => item.remaining > 0)
+      .sort((left, right) => {
+        const leftDeficit = (left.total * (slot + 1) / totalSlices) - placed.get(left.key);
+        const rightDeficit = (right.total * (slot + 1) / totalSlices) - placed.get(right.key);
+        return rightDeficit - leftDeficit;
+      })[0];
+    const sliceIndex = placed.get(group.key);
+    segments.push(group.makeSegment(sliceIndex));
+    placed.set(group.key, sliceIndex + 1);
+    group.remaining -= 1;
+  }
+  return segments;
 }
 
-function renderWellnessWheel(raffle) {
+function getWellnessWheelLegendSegments(segments) {
+  const seen = new Set();
+  return segments.filter((segment) => {
+    const key = segment.type === 'lose' ? 'lose' : `prize:${segment.id || segment.label}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function getReadableTextColor(hexColor) {
+  const normalized = String(hexColor || '').trim().replace(/^#/, '');
+  const fullHex = normalized.length === 3
+    ? normalized.split('').map((character) => character + character).join('')
+    : normalized;
+  if (!/^[0-9a-f]{6}$/i.test(fullHex)) return '#ffffff';
+  const red = parseInt(fullHex.slice(0, 2), 16);
+  const green = parseInt(fullHex.slice(2, 4), 16);
+  const blue = parseInt(fullHex.slice(4, 6), 16);
+  const luminance = ((red * 299) + (green * 587) + (blue * 114)) / 1000;
+  return luminance > 135 ? '#141414' : '#ffffff';
+}
+
+function renderWellnessWheel(raffle, options = {}) {
+  const isPreview = Boolean(options.preview);
   const segments = buildWellnessWheelSegments(raffle);
   let cursor = 0;
-  const gradient = segments.map((segment) => {
+  const positionedSegments = segments.map((segment) => {
     const start = cursor;
     cursor += segment.chance;
-    return `${segment.color} ${start}% ${cursor}%`;
+    return { ...segment, start, end: cursor, mid: start + (segment.chance / 2) };
+  });
+  const gradient = positionedSegments.map((segment) => {
+    const start = segment.start;
+    const end = segment.end;
+    return `${segment.color} ${start}% ${end}%`;
   }).join(', ');
   return `
-    <div class="wellness-wheel-experience">
+    <div class="wellness-wheel-experience${isPreview ? ' is-preview' : ''}">
       <div class="panel-head wellness-wheel-heading">
-        <span class="section-kicker">Wellness raffle</span>
+        <span class="section-kicker">${isPreview ? 'Wheel preview' : 'Wellness raffle'}</span>
         <h2>${escapeHtml(raffle.title)}</h2>
-        <p>${raffle.soldOut ? 'All prizes have been awarded.' : 'Your wellness check is complete. Tap once to reveal your result.'}</p>
+        <p>${isPreview ? 'Unsaved preview using the current labels, colors, and prize shares.' : raffle.soldOut ? 'All prizes have been awarded.' : 'Your wellness check is complete. Tap once to reveal your result.'}</p>
       </div>
       <div class="wellness-wheel-wrap">
         <div class="wellness-wheel-pointer" aria-hidden="true"></div>
         <div id="wellnessSpinWheel" class="wellness-spin-wheel" style="background: conic-gradient(${escapeAttribute(gradient)})" aria-hidden="true">
-          <span>SPIN</span>
+          ${positionedSegments.map((segment) => {
+            const sliceAngle = segment.mid * 3.6;
+            const labelRotation = sliceAngle > 90 && sliceAngle < 270 ? 90 : -90;
+            const labelColor = getReadableTextColor(segment.color);
+            const labelShadow = labelColor === '#ffffff' ? '0 1px 3px rgba(0,0,0,.34)' : '0 1px 2px rgba(255,255,255,.42)';
+            const label = segment.type === 'lose' && segment.chance < 18 ? '' : segment.label;
+            return `
+              <span
+                class="wellness-wheel-slice-label"
+                style="--slice-angle:${sliceAngle.toFixed(2)}deg; --label-rotation:${labelRotation}deg; --label-color:${escapeAttribute(labelColor)}; --label-shadow:${escapeAttribute(labelShadow)};"
+                title="${escapeAttribute(segment.label)}"
+              ><span>${escapeHtml(label)}</span></span>
+            `;
+          }).join('')}
         </div>
+        <div class="wellness-wheel-center" aria-hidden="true">SPIN</div>
       </div>
       <div class="wellness-wheel-legend">
-        ${segments.map((segment) => `<span><i style="background:${escapeAttribute(segment.color)}"></i>${escapeHtml(segment.label)}</span>`).join('')}
+        ${getWellnessWheelLegendSegments(segments).map((segment) => `<span><i style="background:${escapeAttribute(segment.color)}"></i>${escapeHtml(segment.label)}</span>`).join('')}
       </div>
-      <button id="wellnessSpinButton" type="button" ${raffle.soldOut ? 'disabled' : ''}>${raffle.soldOut ? 'Prizes Sold Out' : 'Spin the Wheel'}</button>
-      <div id="wellnessSpinResult" class="wellness-spin-result" aria-live="polite"></div>
+      ${isPreview ? '' : `
+        <button id="wellnessSpinButton" type="button" ${raffle.soldOut ? 'disabled' : ''}>${raffle.soldOut ? 'Prizes Sold Out' : 'Spin the Wheel'}</button>
+        <div id="wellnessSpinResult" class="wellness-spin-result" aria-live="polite"></div>
+      `}
     </div>
   `;
 }
@@ -3746,17 +3902,18 @@ function attachWellnessSpinHandler(eventData, spinToken) {
         method: 'POST', body: { spinToken }
       });
       const segments = buildWellnessWheelSegments(eventData.wellnessRaffle);
-      let start = 0;
-      let targetStart = 0;
-      let targetSize = 60;
-      for (const segment of segments) {
-        if ((result.won && segment.id === result.prizeId) || (!result.won && !segment.id)) {
-          targetStart = start;
-          targetSize = segment.chance;
-          break;
-        }
-        start += segment.chance;
-      }
+      let cursor = 0;
+      const positionedSegments = segments.map((segment) => {
+        const start = cursor;
+        cursor += segment.chance;
+        return { ...segment, start };
+      });
+      const matchingSegments = positionedSegments.filter((segment) => (
+        result.won ? segment.id === result.prizeId : segment.type === 'lose'
+      ));
+      const targetSegment = matchingSegments[Math.floor(Math.random() * matchingSegments.length)] || positionedSegments[0];
+      const targetStart = targetSegment ? targetSegment.start : 0;
+      const targetSize = targetSegment ? targetSegment.chance : 60;
       const targetDegrees = (targetStart + targetSize / 2) * 3.6;
       wheel.style.setProperty('--spin-rotation', `${(5 * 360) + (360 - targetDegrees)}deg`);
       wheel.classList.add('is-spinning');
