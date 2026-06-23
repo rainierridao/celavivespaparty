@@ -143,3 +143,21 @@ test('public event sanitization removes internal raffle storage fields', () => {
   });
   assert.deepEqual(event, { eventId: 'event-1' });
 });
+
+test('detects Firebase split credentials for Netlify functions', () => {
+  const previousEnv = { ...process.env };
+
+  try {
+    delete process.env.FIREBASE_SERVICE_ACCOUNT_FILE;
+    delete process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+    delete process.env.GOOGLE_SERVICE_ACCOUNT_FILE;
+    delete process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
+    process.env.FIREBASE_PROJECT_ID = 'genesys-events-887e4';
+    process.env.FIREBASE_CLIENT_EMAIL = 'firebase-adminsdk@example.iam.gserviceaccount.com';
+    process.env.FIREBASE_PRIVATE_KEY = '-----BEGIN PRIVATE KEY-----\\nabc\\n-----END PRIVATE KEY-----\\n';
+
+    assert.equal(__test.isFirebaseConfigured(), true);
+  } finally {
+    process.env = previousEnv;
+  }
+});
