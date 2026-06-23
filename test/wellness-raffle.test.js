@@ -5,6 +5,7 @@ const { __test } = require('../lib/platform');
 const validConfig = {
   enabled: true,
   title: 'Spin to Win',
+  winChance: 65,
   losingLabel: 'Thank you for playing',
   losingColor: '#7457d9',
   losingSliceCount: 6,
@@ -18,6 +19,7 @@ const validConfig = {
 test('accepts prize shares totaling 100 percent of the winning pool', () => {
   const config = __test.normalizeWellnessRaffleConfig(validConfig);
   assert.equal(config.enabled, true);
+  assert.equal(config.winChance, 65);
   assert.equal(config.losingSliceCount, 6);
   assert.equal(config.losingVisualChance, 20);
   assert.deepEqual(config.prizes.map((prize) => prize.visualSliceCount), [3, 2]);
@@ -25,10 +27,27 @@ test('accepts prize shares totaling 100 percent of the winning pool', () => {
 });
 
 test('accepts automatic losing slice count for existing configs', () => {
-  const { losingSliceCount, losingVisualChance, ...legacyConfig } = validConfig;
+  const { losingSliceCount, losingVisualChance, winChance, ...legacyConfig } = validConfig;
   const config = __test.normalizeWellnessRaffleConfig(legacyConfig);
+  assert.equal(config.winChance, 65);
   assert.equal(config.losingSliceCount, 0);
   assert.equal(config.losingVisualChance, 35);
+});
+
+test('accepts custom winning rates', () => {
+  const config = __test.normalizeWellnessRaffleConfig({
+    ...validConfig,
+    winChance: 75,
+    losingVisualChance: 20
+  });
+  assert.equal(config.winChance, 75);
+});
+
+test('rejects invalid winning rates', () => {
+  assert.throws(
+    () => __test.normalizeWellnessRaffleConfig({ ...validConfig, winChance: 100 }),
+    /Winning rate/
+  );
 });
 
 test('rejects invalid losing slice counts', () => {
