@@ -6,6 +6,7 @@ const INBODY_EVENT_TYPES = [INBODY_EVENT_TYPE, LEGACY_INBODY_EVENT_TYPE];
 const CELAVIVE_RAFFLE_EVENT_TYPE = 'Celavive Spa Party - Raffle Entry';
 const BEAUTY_CARAVAN_EVENT_TYPE = 'Beauty Caravan';
 const WELLNESS_QUIZ_EVENT_TYPE = 'Wellness Quiz';
+const WELLNESS_RAFFLE_WIN_CHANCE = 65;
 const apiBaseCandidates =
   window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost'
     ? ['/api', '/.netlify/functions/api']
@@ -1354,13 +1355,14 @@ function attachEventDetailHandlers(eventData) {
       losingLabel: document.getElementById('wellnessRaffleLosingLabel')?.value.trim() || 'Better luck next time',
       losingColor: document.getElementById('wellnessRaffleLosingColor')?.value || '#7457d9',
       losingSliceCount: Math.max(0, Number(document.getElementById('wellnessRaffleLosingSliceCount')?.value) || 0),
+      losingVisualChance: Math.max(1, Number(document.getElementById('wellnessRaffleLosingVisualChance')?.value) || (100 - WELLNESS_RAFFLE_WIN_CHANCE)),
       soldOut: false,
       prizes: rawPrizes
         .filter((prize) => prize.chance > 0)
         .map((prize) => ({
           ...prize,
           available: true,
-          effectiveChance: totalShare > 0 ? (prize.chance / totalShare) * 40 : 0
+          effectiveChance: totalShare > 0 ? (prize.chance / totalShare) * WELLNESS_RAFFLE_WIN_CHANCE : 0
         }))
     };
   };
@@ -1456,6 +1458,7 @@ function attachEventDetailHandlers(eventData) {
               losingLabel: document.getElementById('wellnessRaffleLosingLabel').value,
               losingColor: document.getElementById('wellnessRaffleLosingColor').value,
               losingSliceCount: Number(document.getElementById('wellnessRaffleLosingSliceCount').value) || 0,
+              losingVisualChance: Number(document.getElementById('wellnessRaffleLosingVisualChance').value) || (100 - WELLNESS_RAFFLE_WIN_CHANCE),
               prizes
             }
           }
@@ -2992,6 +2995,7 @@ function renderWellnessRaffleEditor(eventData) {
     losingLabel: 'Better luck next time',
     losingColor: '#7457d9',
     losingSliceCount: 0,
+    losingVisualChance: 100 - WELLNESS_RAFFLE_WIN_CHANCE,
     prizes: []
   };
   const prizes = config.prizes.length ? config.prizes : [
@@ -3005,9 +3009,9 @@ function renderWellnessRaffleEditor(eventData) {
         <div>
           <span class="section-kicker">Spin-wheel raffle</span>
           <h2>Customize the attendee wheel</h2>
-          <p>The wheel has a 40% overall win chance. Distribute 100% of that winning pool across your prizes.</p>
+          <p>The wheel has a ${WELLNESS_RAFFLE_WIN_CHANCE}% overall win chance. Distribute 100% of that winning pool across your prizes.</p>
         </div>
-        <span class="response-meta-pill">40% win chance</span>
+        <span class="response-meta-pill">${WELLNESS_RAFFLE_WIN_CHANCE}% win chance</span>
       </div>
       <form id="wellnessRaffleSettingsForm" class="wellness-raffle-settings-form">
         <label class="settings-toggle">
@@ -3031,6 +3035,11 @@ function renderWellnessRaffleEditor(eventData) {
             <label for="wellnessRaffleLosingSliceCount">Better luck slices</label>
             <input id="wellnessRaffleLosingSliceCount" type="number" min="0" max="24" step="1" value="${escapeAttribute(config.losingSliceCount || 0)}">
             <small>Use 0 for auto. This changes only how the losing chance is displayed.</small>
+          </div>
+          <div class="field">
+            <label for="wellnessRaffleLosingVisualChance">Better luck visual size</label>
+            <div class="percentage-input"><input id="wellnessRaffleLosingVisualChance" type="number" min="1" max="${100 - WELLNESS_RAFFLE_WIN_CHANCE}" step="1" value="${escapeAttribute(config.losingVisualChance || (100 - WELLNESS_RAFFLE_WIN_CHANCE))}"><span>%</span></div>
+            <small>Visual only. Real winning chance stays ${WELLNESS_RAFFLE_WIN_CHANCE}%.</small>
           </div>
         </div>
         <div class="wellness-prize-heading">
@@ -3749,13 +3758,16 @@ function buildWellnessWheelSegments(raffle) {
   if (!prizes.length) {
     return [{ id: '', visualId: 'lose_0', type: 'lose', label: raffle.losingLabel, color: raffle.losingColor, chance: 100 }];
   }
+  const actualPrizeChanceTotal = prizes.reduce((sum, prize) => sum + Number(prize.effectiveChance || 0), 0);
+  const losingChanceTotal = Math.max(1, Math.min(100 - WELLNESS_RAFFLE_WIN_CHANCE, Number(raffle.losingVisualChance || (100 - WELLNESS_RAFFLE_WIN_CHANCE))));
+  const visualPrizeChanceTotal = Math.max(0, 100 - losingChanceTotal);
   const losingSliceCount = Math.max(1, Math.min(24, Math.floor(Number(raffle.losingSliceCount || prizes.length))));
-  const losingSliceChance = 60 / losingSliceCount;
+  const losingSliceChance = losingChanceTotal / losingSliceCount;
   const visualGroups = [
     {
       key: 'lose',
-      remaining: losingSliceCount,
-      total: losingSliceCount,
+      remaining: losingChanceTotal > 0 ? losingSliceCount : 0,
+      total: losingChanceTotal > 0 ? losingSliceCount : 0,
       makeSegment: (sliceIndex) => ({
         id: '',
         visualId: `lose_${sliceIndex}`,
@@ -3767,7 +3779,10 @@ function buildWellnessWheelSegments(raffle) {
     },
     ...prizes.map((prize, prizeIndex) => {
       const sliceCount = Math.max(1, Math.min(24, Math.floor(Number(prize.visualSliceCount || 1))));
-      const chance = Number(prize.effectiveChance) / sliceCount;
+      const visualPrizeChance = actualPrizeChanceTotal > 0
+        ? Number(prize.effectiveChance) / actualPrizeChanceTotal * visualPrizeChanceTotal
+        : 0;
+      const chance = visualPrizeChance / sliceCount;
       return {
         key: prize.id || `prize_${prizeIndex}`,
         remaining: sliceCount,
@@ -3913,7 +3928,7 @@ function attachWellnessSpinHandler(eventData, spinToken) {
       ));
       const targetSegment = matchingSegments[Math.floor(Math.random() * matchingSegments.length)] || positionedSegments[0];
       const targetStart = targetSegment ? targetSegment.start : 0;
-      const targetSize = targetSegment ? targetSegment.chance : 60;
+      const targetSize = targetSegment ? targetSegment.chance : 100 - WELLNESS_RAFFLE_WIN_CHANCE;
       const targetDegrees = (targetStart + targetSize / 2) * 3.6;
       wheel.style.setProperty('--spin-rotation', `${(5 * 360) + (360 - targetDegrees)}deg`);
       wheel.classList.add('is-spinning');

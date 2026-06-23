@@ -8,6 +8,7 @@ const validConfig = {
   losingLabel: 'Thank you for playing',
   losingColor: '#7457d9',
   losingSliceCount: 6,
+  losingVisualChance: 20,
   prizes: [
     { id: 'prize_one', label: 'Prize One', color: '#e05a9d', quantity: 2, chance: 60, visualSliceCount: 3 },
     { id: 'prize_two', label: 'Prize Two', color: '#f2a83b', quantity: 3, chance: 40, visualSliceCount: 2 }
@@ -18,20 +19,29 @@ test('accepts prize shares totaling 100 percent of the winning pool', () => {
   const config = __test.normalizeWellnessRaffleConfig(validConfig);
   assert.equal(config.enabled, true);
   assert.equal(config.losingSliceCount, 6);
+  assert.equal(config.losingVisualChance, 20);
   assert.deepEqual(config.prizes.map((prize) => prize.visualSliceCount), [3, 2]);
   assert.equal(config.prizes.reduce((sum, prize) => sum + prize.chance, 0), 100);
 });
 
 test('accepts automatic losing slice count for existing configs', () => {
-  const { losingSliceCount, ...legacyConfig } = validConfig;
+  const { losingSliceCount, losingVisualChance, ...legacyConfig } = validConfig;
   const config = __test.normalizeWellnessRaffleConfig(legacyConfig);
   assert.equal(config.losingSliceCount, 0);
+  assert.equal(config.losingVisualChance, 35);
 });
 
 test('rejects invalid losing slice counts', () => {
   assert.throws(
     () => __test.normalizeWellnessRaffleConfig({ ...validConfig, losingSliceCount: 25 }),
     /slice count/
+  );
+});
+
+test('rejects invalid losing visual sizes', () => {
+  assert.throws(
+    () => __test.normalizeWellnessRaffleConfig({ ...validConfig, losingVisualChance: 40 }),
+    /visual size/
   );
 });
 
