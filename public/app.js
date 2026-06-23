@@ -2750,10 +2750,39 @@ function renderQrGeneratorPage() {
             </div>
           </div>
           <div class="qr-generator-preview-actions">
-            <button id="qrGeneratorBrandedOpenButton" type="button" class="button-link">Open Branded QR</button>
-            <button id="qrGeneratorBrandedDownloadButton" type="button" class="button-link button-link-secondary">Download Branded SVG</button>
-            <a id="qrGeneratorRawOpenLink" class="button-link button-link-secondary" target="_blank" rel="noreferrer" href="${escapeAttribute(buildQrUrl(defaultContent))}">Open Raw QR</a>
-            <a id="qrGeneratorRawDownloadLink" class="button-link button-link-secondary" href="${escapeAttribute(buildQrUrl(defaultContent))}" download="genesys-qr.png">Download Raw PNG</a>
+            <div class="qr-generator-primary-actions">
+              <button id="qrGeneratorBrandedOpenButton" type="button" class="button-link">Open Branded QR</button>
+              <button
+                id="qrGeneratorBrandedDownloadButton"
+                type="button"
+                class="button-link button-link-secondary qr-generator-download-icon"
+                aria-label="Download branded QR SVG"
+                title="Download branded QR SVG"
+              >
+                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="M12 3v11" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+                  <path d="m7 10 5 5 5-5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+                  <path d="M5 19h14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+                </svg>
+              </button>
+            </div>
+            <div class="qr-generator-primary-actions">
+              <a id="qrGeneratorRawOpenLink" class="button-link button-link-secondary" target="_blank" rel="noreferrer" href="${escapeAttribute(buildQrUrl(defaultContent))}">Open Raw QR</a>
+              <a
+                id="qrGeneratorRawDownloadLink"
+                class="button-link button-link-secondary qr-generator-download-icon"
+                href="${escapeAttribute(buildQrUrl(defaultContent))}"
+                download="genesys-qr.png"
+                aria-label="Download raw QR PNG"
+                title="Download raw QR PNG"
+              >
+                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="M12 3v11" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+                  <path d="m7 10 5 5 5-5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+                  <path d="M5 19h14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+                </svg>
+              </a>
+            </div>
           </div>
         </aside>
       </section>
