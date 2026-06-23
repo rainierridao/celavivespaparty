@@ -1331,8 +1331,98 @@ function attachEventDetailHandlers(eventData) {
   const rsvpSettingsButton = document.getElementById('openRsvpSettingsButton');
   const rsvpSettingsModal = document.getElementById('rsvpSettingsModal');
   const rsvpSettingsForm = document.getElementById('rsvpSettingsForm');
+  const wellnessRaffleForm = document.getElementById('wellnessRaffleSettingsForm');
+  const wellnessPrizeList = document.getElementById('wellnessPrizeList');
+  const addWellnessPrizeButton = document.getElementById('addWellnessPrizeButton');
+  const distributeWellnessPrizesButton = document.getElementById('distributeWellnessPrizesButton');
   const closeRsvpSettingsButtons = Array.from(document.querySelectorAll('[data-close-rsvp-settings]'));
   const managementStatus = document.getElementById('eventManagementStatus');
+
+  const updateWellnessChanceTotal = () => {
+    const totalElement = document.getElementById('wellnessPrizeChanceTotal');
+    if (!totalElement || !wellnessPrizeList) return;
+    const total = [...wellnessPrizeList.querySelectorAll('[data-prize-chance]')]
+      .reduce((sum, input) => sum + (Number(input.value) || 0), 0);
+    totalElement.textContent = `${Math.round(total * 100) / 100}% of 100% winning pool`;
+    totalElement.classList.toggle('is-valid', Math.abs(total - 100) < 0.001);
+  };
+
+  if (wellnessPrizeList) {
+    wellnessPrizeList.addEventListener('input', updateWellnessChanceTotal);
+    wellnessPrizeList.addEventListener('click', (event) => {
+      const removeButton = event.target.closest('[data-remove-wellness-prize]');
+      if (!removeButton || removeButton.disabled) return;
+      const row = removeButton.closest('[data-wellness-prize]');
+      if (row) row.remove();
+      updateWellnessChanceTotal();
+    });
+    updateWellnessChanceTotal();
+  }
+
+  if (addWellnessPrizeButton && wellnessPrizeList) {
+    addWellnessPrizeButton.addEventListener('click', () => {
+      wellnessPrizeList.insertAdjacentHTML('beforeend', renderWellnessPrizeEditorRow({
+        id: `prize_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+        color: '#4f7de8', quantity: 1, chance: ''
+      }));
+      updateWellnessChanceTotal();
+      const rows = wellnessPrizeList.querySelectorAll('[data-wellness-prize]');
+      rows[rows.length - 1]?.querySelector('[data-prize-label]')?.focus();
+    });
+  }
+
+  if (distributeWellnessPrizesButton && wellnessPrizeList) {
+    distributeWellnessPrizesButton.addEventListener('click', () => {
+      const inputs = [...wellnessPrizeList.querySelectorAll('[data-prize-chance]')];
+      if (!inputs.length) return;
+      const baseHundredths = Math.floor(10000 / inputs.length);
+      let remainingHundredths = 10000 - (baseHundredths * inputs.length);
+      inputs.forEach((input) => {
+        const hundredths = baseHundredths + (remainingHundredths > 0 ? 1 : 0);
+        remainingHundredths = Math.max(0, remainingHundredths - 1);
+        input.value = (hundredths / 100).toFixed(2).replace(/\.00$/, '');
+      });
+      updateWellnessChanceTotal();
+    });
+  }
+
+  if (wellnessRaffleForm && wellnessPrizeList) {
+    wellnessRaffleForm.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const submitButton = wellnessRaffleForm.querySelector('button[type="submit"]');
+      const status = document.getElementById('wellnessRaffleSettingsStatus');
+      const prizes = [...wellnessPrizeList.querySelectorAll('[data-wellness-prize]')].map((row) => ({
+        id: row.dataset.prizeId || `prize_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+        label: row.querySelector('[data-prize-label]').value,
+        color: row.querySelector('[data-prize-color]').value,
+        quantity: Number(row.querySelector('[data-prize-quantity]').value),
+        chance: Number(row.querySelector('[data-prize-chance]').value)
+      }));
+      setStatus(status, '', '');
+      try {
+        setButtonLoading(submitButton, true, 'Saving...');
+        const result = await fetchJson(`/events/${eventData.eventId}`, {
+          method: 'PATCH',
+          body: {
+            action: 'wellness-raffle-settings',
+            wellnessRaffleConfig: {
+              enabled: document.getElementById('wellnessRaffleEnabled').checked,
+              title: document.getElementById('wellnessRaffleTitle').value,
+              losingLabel: document.getElementById('wellnessRaffleLosingLabel').value,
+              losingColor: document.getElementById('wellnessRaffleLosingColor').value,
+              prizes
+            }
+          }
+        });
+        setStatus(status, result.message, 'is-success');
+        window.setTimeout(() => navigate(`/events/${encodeURIComponent(eventData.eventId)}`, true), 450);
+      } catch (error) {
+        setStatus(status, error.message, 'is-error');
+      } finally {
+        setButtonLoading(submitButton, false, 'Save Wheel');
+      }
+    });
+  }
 
   if (rsvpSettingsButton && rsvpSettingsModal) {
     rsvpSettingsButton.addEventListener('click', () => {
@@ -1696,6 +1786,18 @@ function attachCelaviveRaffleHandlers(eventData) {
 function attachWellnessQuizHandlers(eventData) {
   const form = document.getElementById('publicWellnessQuizForm');
 
+  let storedSpinToken = '';
+  try {
+    storedSpinToken = window.localStorage.getItem(getWellnessSpinStorageKey(eventData.eventId)) || '';
+  } catch (error) {
+    storedSpinToken = '';
+  }
+
+  if (storedSpinToken && eventData.wellnessRaffle && eventData.wellnessRaffle.enabled) {
+    showWellnessWheel(eventData, storedSpinToken);
+    return;
+  }
+
   if (!form) {
     return;
   }
@@ -1743,7 +1845,17 @@ function attachWellnessQuizHandlers(eventData) {
       });
 
       form.reset();
-      setStatus(status, result.message, 'is-success');
+      if (result.spinToken && result.wellnessRaffle && result.wellnessRaffle.enabled) {
+        eventData.wellnessRaffle = result.wellnessRaffle;
+        try {
+          window.localStorage.setItem(getWellnessSpinStorageKey(eventData.eventId), result.spinToken);
+        } catch (error) {
+          // The current page can still complete the spin when storage is unavailable.
+        }
+        showWellnessWheel(eventData, result.spinToken);
+      } else {
+        setStatus(status, result.message, 'is-success');
+      }
     } catch (error) {
       setStatus(status, error.message, 'is-error');
     } finally {
@@ -1783,6 +1895,29 @@ function attachInBodyResponseHandlers(eventData) {
 }
 
 function attachResponseDeleteHandlers(eventData, mode) {
+  document.querySelectorAll('[data-reset-wellness-spin]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const rowNumber = button.getAttribute('data-row-number');
+      const responseName = button.getAttribute('data-response-name') || 'this attendee';
+      const confirmed = await showConfirmModal({
+        title: 'Grant another spin?',
+        message: `${responseName} will receive one additional spin. Previous prizes remain recorded.`,
+        confirmLabel: 'Grant Spin'
+      });
+      if (!confirmed) return;
+      try {
+        setButtonLoading(button, true, 'Granting...');
+        const result = await fetchJson(`/events/${eventData.eventId}/wellness-quiz-responses/${rowNumber}/reset-spin`, { method: 'PATCH' });
+        setStatus(document.getElementById('responseActionStatus'), result.message, 'is-success');
+        window.setTimeout(() => navigate(window.location.pathname, true), 450);
+      } catch (error) {
+        setStatus(document.getElementById('responseActionStatus'), error.message, 'is-error');
+      } finally {
+        setButtonLoading(button, false, 'Grant Spin');
+      }
+    });
+  });
+
   document.querySelectorAll('[data-delete-response-row]').forEach((button) => {
     button.addEventListener('click', async () => {
       const rowNumber = button.getAttribute('data-row-number');
@@ -2543,7 +2678,7 @@ function renderEventDetailPage(eventData, previews = {}) {
     headerDetails: renderEventHeaderControls(eventData),
     headerControls: renderHeaderBackLink(eventData.isArchived ? '/events/archive' : '/dashboard', eventData.isArchived ? 'Back to archive' : 'Back to dashboard'),
     content: `
-      <section class="editor-grid event-detail-layout${eventData.isArchived ? ' is-archived' : ' is-active'}">
+      <section class="editor-grid event-detail-layout${eventData.isArchived ? ' is-archived' : ' is-active'}${isWellnessQuiz ? ' has-wellness-raffle' : ''}">
         <div class="detail-main-stack">
           <section class="workspace-panel workspace-panel-large detail-hero">
             <div class="detail-hero-head">
@@ -2701,6 +2836,7 @@ function renderEventDetailPage(eventData, previews = {}) {
               }
             </div>
           </section>
+          ${isWellnessQuiz ? renderWellnessRaffleEditor(eventData) : ''}
         </div>
 
         <aside class="detail-side-stack">
@@ -2801,6 +2937,94 @@ function renderEventDetailPage(eventData, previews = {}) {
       ${eventData.isArchived || isInBody || isWellnessQuiz ? '' : renderRsvpSettingsModal(eventData)}
     `
   });
+}
+
+function renderWellnessRaffleEditor(eventData) {
+  const config = eventData.wellnessRaffle || {
+    enabled: false,
+    title: 'Spin to Win',
+    losingLabel: 'Better luck next time',
+    losingColor: '#7457d9',
+    prizes: []
+  };
+  const prizes = config.prizes.length ? config.prizes : [
+    { id: '', label: 'Grand Prize', color: '#e05a9d', quantity: 1, chance: 50, awarded: 0 },
+    { id: '', label: 'Special Prize', color: '#f2a83b', quantity: 1, chance: 50, awarded: 0 }
+  ];
+
+  return `
+    <section class="workspace-panel workspace-panel-large wellness-raffle-editor">
+      <div class="workspace-heading">
+        <div>
+          <span class="section-kicker">Spin-wheel raffle</span>
+          <h2>Customize the attendee wheel</h2>
+          <p>The wheel has a 40% overall win chance. Distribute 100% of that winning pool across your prizes.</p>
+        </div>
+        <span class="response-meta-pill">40% win chance</span>
+      </div>
+      <form id="wellnessRaffleSettingsForm" class="wellness-raffle-settings-form">
+        <label class="settings-toggle">
+          <input id="wellnessRaffleEnabled" type="checkbox" ${config.enabled ? 'checked' : ''}>
+          <span>Enable wheel after quiz submission</span>
+        </label>
+        <div class="grid wellness-raffle-base-fields">
+          <div class="field full">
+            <label for="wellnessRaffleTitle">Wheel title</label>
+            <input id="wellnessRaffleTitle" maxlength="80" required value="${escapeAttribute(config.title)}">
+          </div>
+          <div class="field">
+            <label for="wellnessRaffleLosingLabel">Losing slice label</label>
+            <input id="wellnessRaffleLosingLabel" maxlength="60" required value="${escapeAttribute(config.losingLabel)}">
+          </div>
+          <div class="field color-field">
+            <label for="wellnessRaffleLosingColor">Losing slice color</label>
+            <input id="wellnessRaffleLosingColor" type="color" value="${escapeAttribute(config.losingColor)}">
+          </div>
+        </div>
+        <div class="wellness-prize-heading">
+          <strong>Winning prizes</strong>
+          <div class="wellness-prize-heading-actions">
+            <button id="distributeWellnessPrizesButton" type="button" class="button-link button-link-secondary">Distribute Evenly</button>
+            <span id="wellnessPrizeChanceTotal">${prizes.reduce((sum, prize) => sum + Number(prize.chance || 0), 0)}% of 100% winning pool</span>
+          </div>
+        </div>
+        <div id="wellnessPrizeList" class="wellness-prize-list">
+          ${prizes.map((prize) => renderWellnessPrizeEditorRow(prize)).join('')}
+        </div>
+        <button id="addWellnessPrizeButton" type="button" class="button-link button-link-secondary">Add Prize</button>
+        <div class="wellness-raffle-form-actions">
+          <div id="wellnessRaffleSettingsStatus" class="status" aria-live="polite"></div>
+          <button type="submit">Save Wheel</button>
+        </div>
+      </form>
+    </section>
+  `;
+}
+
+function renderWellnessPrizeEditorRow(prize = {}) {
+  const awarded = Number(prize.awarded || 0);
+  return `
+    <div class="wellness-prize-row" data-wellness-prize data-prize-id="${escapeAttribute(prize.id || '')}" data-awarded="${awarded}">
+      <div class="field wellness-prize-label">
+        <label>Prize label</label>
+        <input data-prize-label maxlength="60" required value="${escapeAttribute(prize.label || '')}">
+      </div>
+      <div class="field color-field">
+        <label>Color</label>
+        <input data-prize-color type="color" value="${escapeAttribute(prize.color || '#e05a9d')}">
+      </div>
+      <div class="field">
+        <label>Quantity</label>
+        <input data-prize-quantity type="number" min="${Math.max(1, awarded)}" step="1" required value="${escapeAttribute(prize.quantity || 1)}">
+      </div>
+      <div class="field">
+        <label>Winning-pool share</label>
+        <div class="percentage-input"><input data-prize-chance type="number" min="0.01" max="100" step="0.01" required value="${escapeAttribute(prize.chance || '')}"><span>%</span></div>
+      </div>
+      <button type="button" class="wellness-prize-remove" data-remove-wellness-prize ${awarded ? 'disabled title="Awarded prizes cannot be deleted"' : ''} aria-label="Remove prize">Remove</button>
+      ${awarded ? `<small>${awarded} awarded · ${Number(prize.remaining || 0)} remaining</small>` : ''}
+    </div>
+  `;
 }
 
 function renderRsvpSettingsModal(eventData) {
@@ -3435,23 +3659,121 @@ function renderPublicWellnessQuizPage(eventData) {
         </section>
         <section class="public-form-shell">
           <div class="form-card public-form-card">
-            <div class="panel-head">
-              <span class="section-kicker">Wellness Check</span>
-              <h2>${escapeHtml(eventData.wellnessQuizTitle)}</h2>
-            </div>
-            <form id="publicWellnessQuizForm" class="modern-form celavive-raffle-form">
-              ${renderWellnessQuizFields()}
-              <div class="form-submit-row">
-                <button type="submit">Submit Wellness Check</button>
-                <div id="publicFormStatus" class="status" aria-live="polite"></div>
+            <div id="wellnessQuizFormStage">
+              <div class="panel-head">
+                <span class="section-kicker">Wellness Check</span>
+                <h2>${escapeHtml(eventData.wellnessQuizTitle)}</h2>
               </div>
-            </form>
+              <form id="publicWellnessQuizForm" class="modern-form celavive-raffle-form">
+                ${renderWellnessQuizFields()}
+                <div class="form-submit-row">
+                  <button type="submit">Submit Wellness Check</button>
+                  <div id="publicFormStatus" class="status" aria-live="polite"></div>
+                </div>
+              </form>
+            </div>
+            <div id="wellnessWheelStage" hidden></div>
             ${renderPoweredFooter('footer-note auth-legal public-form-powered')}
           </div>
         </section>
       </div>
     </div>
   `;
+}
+
+function buildWellnessWheelSegments(raffle) {
+  const prizes = (raffle.prizes || []).filter((prize) => prize.available && Number(prize.effectiveChance) > 0);
+  return [
+    { id: '', label: raffle.losingLabel, color: raffle.losingColor, chance: 60 },
+    ...prizes.map((prize) => ({ ...prize, chance: Number(prize.effectiveChance) }))
+  ];
+}
+
+function renderWellnessWheel(raffle) {
+  const segments = buildWellnessWheelSegments(raffle);
+  let cursor = 0;
+  const gradient = segments.map((segment) => {
+    const start = cursor;
+    cursor += segment.chance;
+    return `${segment.color} ${start}% ${cursor}%`;
+  }).join(', ');
+  return `
+    <div class="wellness-wheel-experience">
+      <div class="panel-head wellness-wheel-heading">
+        <span class="section-kicker">Wellness raffle</span>
+        <h2>${escapeHtml(raffle.title)}</h2>
+        <p>${raffle.soldOut ? 'All prizes have been awarded.' : 'Your wellness check is complete. Tap once to reveal your result.'}</p>
+      </div>
+      <div class="wellness-wheel-wrap">
+        <div class="wellness-wheel-pointer" aria-hidden="true"></div>
+        <div id="wellnessSpinWheel" class="wellness-spin-wheel" style="background: conic-gradient(${escapeAttribute(gradient)})" aria-hidden="true">
+          <span>SPIN</span>
+        </div>
+      </div>
+      <div class="wellness-wheel-legend">
+        ${segments.map((segment) => `<span><i style="background:${escapeAttribute(segment.color)}"></i>${escapeHtml(segment.label)}</span>`).join('')}
+      </div>
+      <button id="wellnessSpinButton" type="button" ${raffle.soldOut ? 'disabled' : ''}>${raffle.soldOut ? 'Prizes Sold Out' : 'Spin the Wheel'}</button>
+      <div id="wellnessSpinResult" class="wellness-spin-result" aria-live="polite"></div>
+    </div>
+  `;
+}
+
+function getWellnessSpinStorageKey(eventId) {
+  return `wellness-spin:${eventId}`;
+}
+
+function showWellnessWheel(eventData, spinToken) {
+  const raffle = eventData.wellnessRaffle;
+  const formStage = document.getElementById('wellnessQuizFormStage');
+  const wheelStage = document.getElementById('wellnessWheelStage');
+  if (!raffle || !raffle.enabled || !wheelStage) return;
+  if (formStage) formStage.hidden = true;
+  wheelStage.hidden = false;
+  wheelStage.innerHTML = renderWellnessWheel(raffle);
+  attachWellnessSpinHandler(eventData, spinToken);
+}
+
+function attachWellnessSpinHandler(eventData, spinToken) {
+  const button = document.getElementById('wellnessSpinButton');
+  if (!button || !spinToken) return;
+  button.addEventListener('click', async () => {
+    const resultElement = document.getElementById('wellnessSpinResult');
+    const wheel = document.getElementById('wellnessSpinWheel');
+    try {
+      setButtonLoading(button, true, 'Spinning...');
+      const result = await fetchJson(`/events/${eventData.eventId}/wellness-raffle/spin`, {
+        method: 'POST', body: { spinToken }
+      });
+      const segments = buildWellnessWheelSegments(eventData.wellnessRaffle);
+      let start = 0;
+      let targetStart = 0;
+      let targetSize = 60;
+      for (const segment of segments) {
+        if ((result.won && segment.id === result.prizeId) || (!result.won && !segment.id)) {
+          targetStart = start;
+          targetSize = segment.chance;
+          break;
+        }
+        start += segment.chance;
+      }
+      const targetDegrees = (targetStart + targetSize / 2) * 3.6;
+      wheel.style.setProperty('--spin-rotation', `${(5 * 360) + (360 - targetDegrees)}deg`);
+      wheel.classList.add('is-spinning');
+      const reveal = () => {
+        resultElement.innerHTML = result.won
+          ? `<strong>Congratulations!</strong><span>You won ${escapeHtml(result.prizeLabel)}.</span>`
+          : `<strong>${escapeHtml(eventData.wellnessRaffle.losingLabel)}</strong><span>Thank you for completing the wellness check.</span>`;
+        resultElement.classList.add(result.won ? 'is-win' : 'is-lose');
+        button.hidden = true;
+      };
+      if (result.repeated || window.matchMedia('(prefers-reduced-motion: reduce)').matches) reveal();
+      else window.setTimeout(reveal, 4100);
+    } catch (error) {
+      setStatus(resultElement, error.message, 'is-error');
+      setButtonLoading(button, false, 'Spin the Wheel');
+    }
+  });
 }
 
 function renderWellnessQuizFields() {
@@ -3906,6 +4228,15 @@ function renderResponseRowActions(row, mode) {
   }
 
   return `
+    ${mode === 'wellness-quiz' && row['Spin Token'] ? `
+      <button
+        type="button"
+        class="button-link button-link-secondary response-reset-spin-button"
+        data-reset-wellness-spin
+        data-row-number="${escapeAttribute(rowNumber)}"
+        data-response-name="${escapeAttribute(responseName)}"
+      >Grant Spin</button>
+    ` : ''}
     <button
       type="button"
       class="button-link button-link-danger response-delete-button"
@@ -5047,7 +5378,10 @@ function wellnessQuizColumnFallback() {
     'Health Rating',
     '90-Day Health Goal',
     'Consultation Interest',
-    'Comments / Health Concerns'
+    'Comments / Health Concerns',
+    'Allowed Spins',
+    'Completed Spins',
+    'Latest Spin Result'
   ];
 }
 

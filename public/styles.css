@@ -18,6 +18,289 @@
   --radius-sm: 12px;
 }
 
+@media (min-width: 1281px) {
+  .event-detail-layout.has-wellness-raffle .detail-main-stack {
+    grid-template-rows: max-content max-content;
+    align-content: start;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding-right: 5px;
+    scrollbar-gutter: stable;
+  }
+
+  .event-detail-layout.has-wellness-raffle .detail-hero,
+  .event-detail-layout.has-wellness-raffle .wellness-raffle-editor {
+    height: auto;
+    overflow: visible;
+    flex: none;
+  }
+}
+
+/* Wellness Quiz spin-wheel raffle */
+.wellness-raffle-editor {
+  display: grid;
+  gap: 22px;
+}
+
+.wellness-raffle-settings-form,
+.wellness-prize-list {
+  display: grid;
+  gap: 16px;
+}
+
+.settings-toggle {
+  display: flex !important;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid rgba(193, 205, 232, 0.9);
+  border-radius: 14px;
+  background: #f7f9ff;
+}
+
+.settings-toggle input {
+  width: 20px !important;
+  min-height: 20px !important;
+  accent-color: #565cf2;
+}
+
+.wellness-raffle-base-fields {
+  align-items: end;
+}
+
+.color-field input[type="color"] {
+  width: 100%;
+  min-height: 48px;
+  padding: 5px;
+  cursor: pointer;
+}
+
+.wellness-prize-heading,
+.wellness-raffle-form-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.wellness-prize-heading-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.wellness-prize-heading-actions .button-link {
+  width: auto !important;
+  min-height: 38px !important;
+  padding: 0 14px !important;
+  font-size: 0.74rem !important;
+}
+
+#wellnessPrizeChanceTotal {
+  color: #b74963;
+  font-weight: 800;
+}
+
+#wellnessPrizeChanceTotal.is-valid {
+  color: #21825d;
+}
+
+.wellness-prize-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 2fr) 90px minmax(90px, .7fr) minmax(110px, .8fr) auto;
+  align-items: end;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid rgba(203, 211, 231, 0.92);
+  border-radius: 16px;
+  background: #fbfcff;
+}
+
+.wellness-prize-row small {
+  grid-column: 1 / -1;
+  color: #6e7891;
+  font-weight: 700;
+}
+
+.percentage-input {
+  position: relative;
+}
+
+.percentage-input input {
+  padding-right: 32px !important;
+}
+
+.percentage-input span {
+  position: absolute;
+  top: 50%;
+  right: 12px;
+  transform: translateY(-50%);
+  color: #717b94;
+  font-weight: 800;
+}
+
+.wellness-prize-remove {
+  min-height: 46px !important;
+  padding: 0 14px !important;
+  color: #a03b54 !important;
+  background: #fff1f4 !important;
+  box-shadow: inset 0 0 0 1px #f0c8d2 !important;
+}
+
+.wellness-prize-remove:disabled {
+  cursor: not-allowed;
+  opacity: .5;
+}
+
+.response-table td:last-child {
+  min-width: 130px;
+}
+
+.response-reset-spin-button,
+.response-delete-button {
+  margin: 3px;
+}
+
+.wellness-wheel-experience {
+  display: grid;
+  justify-items: center;
+  gap: 20px;
+  text-align: center;
+}
+
+.wellness-wheel-heading {
+  width: 100%;
+}
+
+.wellness-wheel-heading p {
+  margin: 8px 0 0;
+  color: #746e82;
+}
+
+.wellness-wheel-wrap {
+  position: relative;
+  width: min(390px, 82vw);
+  aspect-ratio: 1;
+  padding: 10px;
+  border-radius: 50%;
+  background: linear-gradient(145deg, #fff 0%, #eee9ff 100%);
+  box-shadow: 0 25px 60px rgba(92, 64, 147, .2), inset 0 0 0 2px rgba(255,255,255,.95);
+}
+
+.wellness-wheel-pointer {
+  position: absolute;
+  z-index: 3;
+  top: -8px;
+  left: 50%;
+  width: 0;
+  height: 0;
+  transform: translateX(-50%);
+  border-left: 18px solid transparent;
+  border-right: 18px solid transparent;
+  border-top: 38px solid #2b203c;
+  filter: drop-shadow(0 5px 5px rgba(41, 28, 61, .25));
+}
+
+.wellness-spin-wheel {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  border: 7px solid #fff;
+  border-radius: 50%;
+  transform: rotate(0deg);
+  box-shadow: inset 0 0 0 2px rgba(37, 27, 55, .1);
+}
+
+.wellness-spin-wheel.is-spinning {
+  transform: rotate(var(--spin-rotation));
+  transition: transform 4s cubic-bezier(.12, .68, .13, 1);
+}
+
+.wellness-spin-wheel > span {
+  display: grid;
+  place-items: center;
+  width: 31%;
+  aspect-ratio: 1;
+  border: 6px solid rgba(255,255,255,.9);
+  border-radius: 50%;
+  color: #352748;
+  background: #fff;
+  box-shadow: 0 8px 25px rgba(36, 23, 59, .2);
+  font-size: clamp(.8rem, 3vw, 1.15rem);
+  font-weight: 900;
+  letter-spacing: .1em;
+}
+
+.wellness-wheel-legend {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px 14px;
+}
+
+.wellness-wheel-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: #554d62;
+  font-size: .82rem;
+  font-weight: 700;
+}
+
+.wellness-wheel-legend i {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+}
+
+.wellness-spin-result {
+  min-height: 52px;
+  display: grid;
+  gap: 5px;
+}
+
+.wellness-spin-result strong {
+  font-size: 1.28rem;
+  color: #342645;
+}
+
+.wellness-spin-result.is-win strong {
+  color: #b33b7d;
+}
+
+@media (max-width: 760px) {
+  .wellness-prize-row {
+    grid-template-columns: minmax(0, 1fr) minmax(84px, .45fr);
+  }
+
+  .wellness-prize-label {
+    grid-column: 1 / -1;
+  }
+
+  .wellness-prize-remove {
+    grid-column: 1 / -1;
+  }
+
+  .wellness-raffle-form-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .wellness-prize-heading,
+  .wellness-prize-heading-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wellness-spin-wheel.is-spinning {
+    transition-duration: .01ms;
+  }
+}
+
 .inbody-event-setup,
 .beauty-caravan-event-setup {
   padding: 18px;
