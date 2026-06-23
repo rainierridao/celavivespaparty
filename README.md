@@ -66,3 +66,45 @@ If the homepage shows a 404 on Netlify, it usually means the site was deployed b
 - If Google Sheets is not configured yet, the app still opens locally but submissions will show a setup message.
 - The app automatically creates a `Registrations` tab if it does not exist.
 - The header row is added automatically the first time the app writes to the sheet.
+
+## Firebase / Firestore backend
+
+The app can use Firestore as the primary backend instead of Google Sheets.
+This is better for higher traffic because submissions are saved to a database first.
+
+Add these variables to `.env` locally, and to Netlify environment variables when deployed:
+
+```bash
+DATA_BACKEND=firebase
+FIREBASE_PROJECT_ID=your_firebase_project_id
+FIREBASE_SERVICE_ACCOUNT_FILE=./usana-bc-tracker-signup-7153d529ad39.json
+AUTH_SECRET=use_a_long_random_secret_here
+```
+
+You may also use `FIREBASE_SERVICE_ACCOUNT_JSON` instead of a file path on Netlify.
+The Firebase service account must have Firestore read/write access.
+
+### Migrate existing Google Sheets data to Firebase
+
+Before switching live traffic, keep your Google Sheets variables in `.env` too:
+
+```bash
+GOOGLE_SHEET_ID=your_google_sheet_id_here
+GOOGLE_SERVICE_ACCOUNT_FILE=./usana-bc-tracker-signup-7153d529ad39.json
+FIREBASE_PROJECT_ID=your_firebase_project_id
+FIREBASE_SERVICE_ACCOUNT_FILE=./usana-bc-tracker-signup-7153d529ad39.json
+```
+
+Then run:
+
+```bash
+npm run migrate:firebase
+```
+
+After the migration prints the copied sheet names and row counts, set:
+
+```bash
+DATA_BACKEND=firebase
+```
+
+Restart the app. Google Sheets can stay configured as a backup/export source, but new live reads and writes will use Firebase.

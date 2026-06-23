@@ -1,3 +1,5 @@
 .env
 usana-bc-tracker-signup-*.json
+*-firebase-adminsdk-*.json
+*service-account*.json
 .DS_Store

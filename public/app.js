@@ -234,6 +234,17 @@ async function renderRoute() {
     return;
   }
 
+  if (pathname === '/qr-generator') {
+    if (!(await guardAuthenticated())) {
+      return;
+    }
+
+    renderPage(renderQrGeneratorPage());
+    attachAdminShellHandlers();
+    attachQrGeneratorHandlers();
+    return;
+  }
+
   if (pathname === '/events/new') {
     if (!(await guardAuthenticated())) {
       return;
@@ -1111,6 +1122,11 @@ function attachCreateEventHandlers() {
 
     if (wellnessQuizTitleInput) {
       wellnessQuizTitleInput.required = Boolean(isWellnessQuiz);
+      wellnessQuizTitleInput.disabled = !isWellnessQuiz;
+
+      if (!isWellnessQuiz) {
+        wellnessQuizTitleInput.value = '';
+      }
     }
 
     if (!isInBody && inBodyModeInput) {
@@ -1219,6 +1235,120 @@ function attachCreateEventHandlers() {
       setButtonLoading(submitButton, false, 'Create Event');
     }
   });
+}
+
+function attachQrGeneratorHandlers() {
+  const form = document.getElementById('qrGeneratorForm');
+  const titleInput = document.getElementById('qrGeneratorTitle');
+  const contentInput = document.getElementById('qrGeneratorContent');
+  const previewImage = document.getElementById('qrGeneratorPreviewImage');
+  const rawOpenLink = document.getElementById('qrGeneratorRawOpenLink');
+  const brandedOpenButton = document.getElementById('qrGeneratorBrandedOpenButton');
+  const brandedDownloadButton = document.getElementById('qrGeneratorBrandedDownloadButton');
+  const rawDownloadLink = document.getElementById('qrGeneratorRawDownloadLink');
+  const copyButton = document.getElementById('qrGeneratorCopyButton');
+  const status = document.getElementById('qrGeneratorStatus');
+
+  if (!form || !contentInput || !previewImage) {
+    return;
+  }
+
+  const syncPreview = () => {
+    const content = contentInput.value.trim();
+    const title = titleInput && titleInput.value.trim() ? titleInput.value.trim() : 'GeneSys QR';
+    const qrUrl = content ? buildQrUrl(content) : '';
+
+    previewImage.src = qrUrl || buildQrUrl(window.location.origin);
+    previewImage.alt = content ? `QR code for ${title}` : 'QR code preview';
+
+    if (rawOpenLink) {
+      rawOpenLink.href = qrUrl || buildQrUrl(window.location.origin);
+      rawOpenLink.toggleAttribute('aria-disabled', !content);
+    }
+
+    if (rawDownloadLink) {
+      rawDownloadLink.href = qrUrl || buildQrUrl(window.location.origin);
+      rawDownloadLink.download = `${slugifyTitle(title)}-qr.png`;
+      rawDownloadLink.toggleAttribute('aria-disabled', !content);
+    }
+
+    if (brandedOpenButton) {
+      brandedOpenButton.disabled = !content;
+    }
+
+    if (brandedDownloadButton) {
+      brandedDownloadButton.disabled = !content;
+    }
+
+    if (copyButton) {
+      copyButton.disabled = !content;
+    }
+  };
+
+  contentInput.addEventListener('input', syncPreview);
+  titleInput?.addEventListener('input', syncPreview);
+
+  form.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const content = contentInput.value.trim();
+    const title = titleInput && titleInput.value.trim() ? titleInput.value.trim() : 'GeneSys QR';
+
+    if (!content) {
+      setStatus(status, 'Add a link or text to generate a QR code.', 'is-error');
+      return;
+    }
+
+    setStatus(status, 'QR code updated.', 'is-success');
+    previewImage.src = buildQrUrl(content);
+    previewImage.alt = `QR code for ${title}`;
+  });
+
+  brandedOpenButton?.addEventListener('click', () => {
+    const content = contentInput.value.trim();
+    const title = titleInput && titleInput.value.trim() ? titleInput.value.trim() : 'GeneSys QR';
+
+    if (!content) {
+      setStatus(status, 'Add a link or text to generate a QR code.', 'is-error');
+      return;
+    }
+
+    openBrandedQrTab({ eventLabel: title }, content);
+  });
+
+  brandedDownloadButton?.addEventListener('click', () => {
+    const content = contentInput.value.trim();
+    const title = titleInput && titleInput.value.trim() ? titleInput.value.trim() : 'GeneSys QR';
+
+    if (!content) {
+      setStatus(status, 'Add a link or text to generate a QR code.', 'is-error');
+      return;
+    }
+
+    downloadTextFile(
+      `${slugifyTitle(title)}-branded-qr.svg`,
+      buildBrandedQrSvg(title, buildQrUrl(content), content),
+      'image/svg+xml;charset=utf-8'
+    );
+    setStatus(status, 'Branded QR downloaded.', 'is-success');
+  });
+
+  copyButton?.addEventListener('click', async () => {
+    const content = contentInput.value.trim();
+
+    if (!content) {
+      setStatus(status, 'Add a link or text to copy.', 'is-error');
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(content);
+      setStatus(status, 'Copied.', 'is-success');
+    } catch (error) {
+      setStatus(status, 'Unable to copy from this browser.', 'is-error');
+    }
+  });
+
+  syncPreview();
 }
 
 function collectInBodySlotRows(form) {
@@ -2572,6 +2702,65 @@ function renderArchivePage(events) {
   });
 }
 
+function renderQrGeneratorPage() {
+  const defaultContent = window.location.origin;
+
+  return renderAdminFrame({
+    activeView: 'qr-generator',
+    user: state.session,
+    eventCount: state.cachedEventCount,
+    title: 'QR Generator',
+    subtitle: 'Create a branded QR code for any event link, registration page, or custom text.',
+    badge: 'QR tool',
+    headerControls: renderHeaderBackLink('/dashboard', 'Back to dashboard'),
+    content: `
+      <section class="qr-generator-layout">
+        <section class="workspace-panel workspace-panel-large qr-generator-panel">
+          <div class="workspace-heading">
+            <div>
+              <span class="section-kicker">QR setup</span>
+              <h2>Generate QR</h2>
+            </div>
+          </div>
+
+          <form id="qrGeneratorForm" class="stack-form modern-form qr-generator-form">
+            <div class="field">
+              <label for="qrGeneratorTitle">QR Title</label>
+              <input id="qrGeneratorTitle" name="qrGeneratorTitle" type="text" value="GeneSys QR">
+            </div>
+            <div class="field">
+              <label for="qrGeneratorContent">Link or Text <span class="required">*</span></label>
+              <textarea id="qrGeneratorContent" name="qrGeneratorContent" rows="5" required placeholder="https://example.com">${escapeHtml(defaultContent)}</textarea>
+            </div>
+            <div class="qr-generator-actions">
+              <button type="submit" class="topbar-primary">Generate QR</button>
+              <button id="qrGeneratorCopyButton" type="button" class="button-link button-link-secondary">Copy Text</button>
+            </div>
+            <p id="qrGeneratorStatus" class="form-status" role="status" aria-live="polite"></p>
+          </form>
+        </section>
+
+        <aside class="workspace-panel qr-card qr-generator-preview-card">
+          <span class="section-kicker">Preview</span>
+          <h3>Branded QR</h3>
+          <div class="qr-panel">
+            <div class="qr-image-stack">
+              <img id="qrGeneratorPreviewImage" class="qr-image" src="${escapeAttribute(buildQrUrl(defaultContent))}" alt="QR code preview">
+              <img class="qr-brand-mark" src="/assets/logo/Genesys_Logo2.svg" alt="" aria-hidden="true">
+            </div>
+          </div>
+          <div class="qr-generator-preview-actions">
+            <button id="qrGeneratorBrandedOpenButton" type="button" class="button-link">Open Branded QR</button>
+            <button id="qrGeneratorBrandedDownloadButton" type="button" class="button-link button-link-secondary">Download Branded SVG</button>
+            <a id="qrGeneratorRawOpenLink" class="button-link button-link-secondary" target="_blank" rel="noreferrer" href="${escapeAttribute(buildQrUrl(defaultContent))}">Open Raw QR</a>
+            <a id="qrGeneratorRawDownloadLink" class="button-link button-link-secondary" href="${escapeAttribute(buildQrUrl(defaultContent))}" download="genesys-qr.png">Download Raw PNG</a>
+          </div>
+        </aside>
+      </section>
+    `
+  });
+}
+
 function renderCreateEventPage() {
   return renderAdminFrame({
     activeView: 'create',
@@ -2619,7 +2808,7 @@ function renderCreateEventPage() {
               <label for="location">Location <span class="required">*</span></label>
               <textarea id="location" name="location" placeholder="Boardroom 3, 8th Floor, Mallberry Suites, Cagayan de Oro City" required></textarea>
             </div>
-            <div id="wellnessQuizEventSetup" class="field full" hidden>
+            <div id="wellnessQuizEventSetup" class="field full wellness-quiz-event-setup" hidden>
               <label for="wellnessQuizTitle">Wellness Quiz Title <span class="required">*</span></label>
               <input id="wellnessQuizTitle" name="wellnessQuizTitle" type="text" placeholder="CAMP EVANGELISTA WELLNESS CHECK">
               <span class="field-help">This title appears at the top of the public wellness check.</span>
@@ -4575,6 +4764,18 @@ function renderAdminSidebar(activeView, user, eventCount) {
           </span>
           <span class="sidebar-link-label">New Event</span>
         </a>
+        <a href="/qr-generator" data-link class="sidebar-link${activeView === 'qr-generator' ? ' is-active' : ''}">
+          <span class="sidebar-link-icon">
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <rect x="5" y="5" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.8"/>
+              <rect x="14" y="5" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.8"/>
+              <rect x="5" y="14" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.8"/>
+              <path d="M14 14H16V16H14V14Z" fill="currentColor"/>
+              <path d="M18 14H19V19H14V18H17V16H18V14Z" fill="currentColor"/>
+            </svg>
+          </span>
+          <span class="sidebar-link-label">QR Generator</span>
+        </a>
         <a href="/events/archive" data-link class="sidebar-link${activeView === 'archive' ? ' is-active' : ''}">
           <span class="sidebar-link-icon">
             <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -5461,6 +5662,33 @@ function buildBrandedQrDocument(eventLabel, qrUrl, targetUrl) {
   </html>`;
 }
 
+function buildBrandedQrSvg(title, qrUrl, targetUrl) {
+  const label = title || 'GeneSys QR';
+  const logoUrl = `${window.location.origin}/assets/logo/Genesys_Logo2.svg`;
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1350" viewBox="0 0 1080 1350">
+  <defs>
+    <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="28" stdDeviation="28" flood-color="#32497d" flood-opacity="0.16"/>
+    </filter>
+  </defs>
+  <rect width="1080" height="1350" fill="#edf3ff"/>
+  <circle cx="130" cy="110" r="240" fill="#5c66ff" opacity="0.13"/>
+  <circle cx="960" cy="1260" r="220" fill="#e1f86f" opacity="0.15"/>
+  <rect x="160" y="120" width="760" height="1110" rx="72" fill="#ffffff" filter="url(#softShadow)"/>
+  <text x="540" y="225" text-anchor="middle" font-family="Arial, sans-serif" font-size="28" font-weight="800" letter-spacing="6" fill="#5160e8">QR ACCESS</text>
+  <text x="540" y="302" text-anchor="middle" font-family="Arial, sans-serif" font-size="54" font-weight="800" fill="#121826">${escapeSvgText(label)}</text>
+  <rect x="250" y="395" width="580" height="580" rx="72" fill="#f8fbff" stroke="#d6dcea" stroke-width="4"/>
+  <image href="${escapeAttribute(qrUrl)}" x="310" y="455" width="460" height="460" preserveAspectRatio="xMidYMid meet"/>
+  <circle cx="540" cy="685" r="78" fill="#ffffff" filter="url(#softShadow)"/>
+  <image href="${escapeAttribute(logoUrl)}" x="495" y="640" width="90" height="90" preserveAspectRatio="xMidYMid meet"/>
+  <foreignObject x="230" y="1032" width="620" height="116">
+    <div xmlns="http://www.w3.org/1999/xhtml" style="font-family: Arial, sans-serif; font-size: 25px; line-height: 1.45; color: #6f7992; text-align: center; word-break: break-word;">${escapeHtml(targetUrl)}</div>
+  </foreignObject>
+</svg>`;
+}
+
 function openBrandedQrTab(eventData, rsvpUrl) {
   const qrWindow = window.open('about:blank', '_blank');
 
@@ -5472,6 +5700,30 @@ function openBrandedQrTab(eventData, rsvpUrl) {
   qrWindow.document.open();
   qrWindow.document.write(buildBrandedQrDocument(eventData.eventLabel, buildQrUrl(rsvpUrl), rsvpUrl));
   qrWindow.document.close();
+}
+
+function downloadTextFile(fileName, content, mimeType) {
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function slugifyTitle(value) {
+  return String(value || 'genesys')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60) || 'genesys';
+}
+
+function escapeSvgText(value) {
+  return escapeHtml(value).replace(/\n/g, ' ');
 }
 
 function syncDynamicHeaderTitle() {
