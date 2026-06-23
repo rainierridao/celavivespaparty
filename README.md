@@ -84,6 +84,18 @@ AUTH_SECRET=use_a_long_random_secret_here
 You may also use `FIREBASE_SERVICE_ACCOUNT_JSON` instead of a file path on Netlify.
 The Firebase service account must have Firestore read/write access.
 
+For Netlify Functions, prefer the smaller split-key format to avoid AWS Lambda's 4KB environment variable limit:
+
+```bash
+DATA_BACKEND=firebase
+FIREBASE_PROJECT_ID=your_firebase_project_id
+FIREBASE_CLIENT_EMAIL=firebase-adminsdk-...@your_project.iam.gserviceaccount.com
+FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
+AUTH_SECRET=use_a_long_random_secret_here
+```
+
+When using the split-key format, remove `FIREBASE_SERVICE_ACCOUNT_JSON`, `GOOGLE_SERVICE_ACCOUNT_JSON`, and `GOOGLE_SHEET_ID` from Netlify unless you still need Google Sheets there.
+
 ### Migrate existing Google Sheets data to Firebase
 
 Before switching live traffic, keep your Google Sheets variables in `.env` too:
