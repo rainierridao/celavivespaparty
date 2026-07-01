@@ -2369,12 +2369,36 @@ textarea {
   width: min(100%, 360px);
 }
 
+.event-header-location-field {
+  flex-basis: 420px;
+  width: min(100%, 420px);
+}
+
 .event-header-schedule-field label {
   font-size: 0.76rem;
   font-weight: 800;
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: #5f6a86;
+}
+
+.event-header-schedule-field input[type="text"] {
+  width: 100%;
+  min-height: 52px;
+  border-radius: 14px;
+  border: 1px solid rgba(92, 103, 132, 0.2);
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--software-ink);
+  font: inherit;
+  font-size: 0.92rem;
+  padding: 0 14px;
+  box-shadow: 0 12px 22px rgba(26, 37, 74, 0.06);
+}
+
+.event-header-schedule-field input[type="text"]:focus {
+  outline: none;
+  border-color: rgba(79, 125, 232, 0.7);
+  box-shadow: 0 0 0 4px rgba(79, 125, 232, 0.14);
 }
 
 .event-header-actions-row {

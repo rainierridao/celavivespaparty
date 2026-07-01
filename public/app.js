@@ -1697,16 +1697,18 @@ function attachEventDetailHandlers(eventData) {
     scheduleForm.addEventListener('submit', async (event) => {
       event.preventDefault();
       const submitButton = scheduleForm.querySelector('button[type="submit"]');
-      const dateTime = scheduleForm.dateTime.value;
+      const dateTime = scheduleForm.elements.dateTime.value;
+      const location = scheduleForm.elements.location.value;
 
       setStatus(managementStatus, '', '');
 
       try {
-        setButtonLoading(submitButton, true, 'Saving schedule...');
+        setButtonLoading(submitButton, true, 'Saving...');
         const result = await fetchJson(`/events/${eventData.eventId}`, {
           method: 'PATCH',
           body: {
             action: 'reschedule',
+            location,
             dateTime
           }
         });
@@ -1716,7 +1718,7 @@ function attachEventDetailHandlers(eventData) {
       } catch (error) {
         setStatus(managementStatus, error.message, 'is-error');
       } finally {
-        setButtonLoading(submitButton, false, 'Update Date');
+        setButtonLoading(submitButton, false, 'Update');
       }
     });
   }
@@ -3606,6 +3608,10 @@ function renderEventHeaderControls(eventData) {
 
   return `
     <form id="eventScheduleForm" class="event-header-schedule-form">
+      <div class="event-header-schedule-field event-header-location-field">
+        <label for="manageLocation">Location</label>
+        <input id="manageLocation" name="location" type="text" value="${escapeAttribute(eventData.location || '')}" required>
+      </div>
       <div class="event-header-schedule-field">
         <label for="manageDateTime">${isArchived ? 'Update date to reactivate' : 'Reschedule event'}</label>
         <div class="date-input-shell">
