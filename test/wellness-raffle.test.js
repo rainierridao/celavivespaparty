@@ -144,6 +144,11 @@ test('public event sanitization removes internal raffle storage fields', () => {
   assert.deepEqual(event, { eventId: 'event-1' });
 });
 
+test('defaults RSVP collection to open for Celavive spa party events', () => {
+  assert.equal(__test.getDefaultRsvpAccepting('Celavive Spa Party'), true);
+  assert.equal(__test.getDefaultRsvpAccepting('Beauty Caravan'), false);
+});
+
 test('detects Firebase split credentials for Netlify functions', () => {
   const previousEnv = { ...process.env };
 
