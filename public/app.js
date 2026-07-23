@@ -458,11 +458,21 @@ async function renderRoute() {
     renderLoading('Loading RSVP form...');
 
     try {
-      const result = await fetchJson(`/public-events/${rsvpMatch[1]}`);
-      renderPage(renderPublicEventPage('rsvp', result.event));
-      attachPublicShowcase();
-      syncDynamicHeaderTitle();
-      attachRsvpHandlers(result.event);
+      const identifier = rsvpMatch[1];
+      const isView = identifier.endsWith('view');
+      const result = await fetchJson(`/public-events/${identifier}`);
+
+      if (isView && result.event && result.event.eventType === 'Celavive Spa Party') {
+        const responsesResult = await fetchJson(`/public-events/${identifier}/rsvp-responses`);
+        renderPage(renderResponsesPage('RSVP Responses', responsesResult.event, responsesResult.responses, 'rsvp'));
+        attachPublicShowcase();
+        syncDynamicHeaderTitle();
+      } else {
+        renderPage(renderPublicEventPage('rsvp', result.event));
+        attachPublicShowcase();
+        syncDynamicHeaderTitle();
+        attachRsvpHandlers(result.event);
+      }
     } catch (error) {
       renderPage(renderErrorPage('Unable to load that RSVP page.', error.message));
     }
