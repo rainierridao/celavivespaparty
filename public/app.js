@@ -6,7 +6,9 @@ const INBODY_EVENT_TYPES = [INBODY_EVENT_TYPE, LEGACY_INBODY_EVENT_TYPE];
 const CELAVIVE_RAFFLE_EVENT_TYPE = 'Celavive Spa Party - Raffle Entry';
 const BEAUTY_CARAVAN_EVENT_TYPE = 'Beauty Caravan';
 const WELLNESS_QUIZ_EVENT_TYPE = 'Wellness Quiz';
+const GROUP_DELIVERY_EVENT_TYPE = 'Group Delivery';
 const DEFAULT_WELLNESS_RAFFLE_WIN_CHANCE = 65;
+const GROUP_DELIVERY_SESSION_KEY = 'groupDeliverySession';
 const apiBaseCandidates =
   window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost'
     ? ['/api', '/.netlify/functions/api']
@@ -112,7 +114,7 @@ async function loadConfig() {
   } catch (error) {
     state.config = {
       eventName: 'Celavive Spa Party',
-      eventTypes: ['OPP', 'Celavive Spa Party', BEAUTY_CARAVAN_EVENT_TYPE, CELAVIVE_RAFFLE_EVENT_TYPE, INBODY_EVENT_TYPE, WELLNESS_QUIZ_EVENT_TYPE],
+      eventTypes: ['OPP', 'Celavive Spa Party', BEAUTY_CARAVAN_EVENT_TYPE, CELAVIVE_RAFFLE_EVENT_TYPE, INBODY_EVENT_TYPE, WELLNESS_QUIZ_EVENT_TYPE, GROUP_DELIVERY_EVENT_TYPE],
       professions: [],
       googleSheetsConfigured: false
     };
@@ -298,12 +300,21 @@ async function renderRoute() {
       const wellnessQuizResult = isWellnessQuizEvent(eventResult.event)
         ? await fetchJson(`/events/${eventId}/wellness-quiz-responses`)
         : { responses: [] };
+      const groupDeliveryUsersResult = isGroupDeliveryEvent(eventResult.event)
+        ? await fetchJson(`/events/${eventId}/group-delivery-users`)
+        : { users: [] };
+      const groupDeliveryCyclesResult = isGroupDeliveryEvent(eventResult.event)
+        ? await fetchJson(`/events/${eventId}/group-delivery-cycles`)
+        : { cycles: [], currentCycle: null };
       renderPage(renderEventDetailPage(eventResult.event, {
         rsvpResponses: rsvpResult.responses || [],
         attendanceResponses: attendanceResult.responses || [],
         inBodyResponses: inBodyResult.responses || [],
         celaviveRaffleResponses: celaviveRaffleResult.responses || [],
-        wellnessQuizResponses: wellnessQuizResult.responses || []
+        wellnessQuizResponses: wellnessQuizResult.responses || [],
+        groupDeliveryUsers: groupDeliveryUsersResult.users || [],
+        groupDeliveryCycles: groupDeliveryCyclesResult.cycles || [],
+        groupDeliveryCurrentCycle: groupDeliveryCyclesResult.currentCycle || null
       }));
       attachAdminShellHandlers();
       attachEventDetailHandlers(eventResult.event);
@@ -565,6 +576,30 @@ async function renderRoute() {
       attachWellnessQuizHandlers(result.event);
     } catch (error) {
       renderPage(renderErrorPage('Unable to load that Wellness Quiz.', error.message));
+    }
+
+    return;
+  }
+
+  const groupDeliveryMatch = pathname.match(/^\/group-delivery\/([^/]+)$/);
+
+  if (groupDeliveryMatch) {
+    renderLoading('Loading group delivery form...');
+
+    try {
+      const result = await fetchJson(`/public-group-delivery/${groupDeliveryMatch[1]}`);
+
+      if (!isGroupDeliveryEvent(result.event)) {
+        renderPage(renderErrorPage('Group Delivery page unavailable.', 'This event does not have a Group Delivery workflow.'));
+        return;
+      }
+
+      renderPage(renderPublicGroupDeliveryPage(result.event, result.currentCycle));
+      attachPublicShowcase();
+      syncDynamicHeaderTitle();
+      attachGroupDeliveryHandlers(result.event);
+    } catch (error) {
+      renderPage(renderErrorPage('Unable to load that Group Delivery page.', error.message));
     }
 
     return;
@@ -1381,10 +1416,13 @@ function attachEventDetailHandlers(eventData) {
   const celaviveRaffleQrOpenLink = document.getElementById('celaviveRaffleQrOpenLink');
   const wellnessQuizQrImage = document.getElementById('wellnessQuizQrImage');
   const wellnessQuizQrOpenLink = document.getElementById('wellnessQuizQrOpenLink');
+  const groupDeliveryQrImage = document.getElementById('groupDeliveryQrImage');
+  const groupDeliveryQrOpenLink = document.getElementById('groupDeliveryQrOpenLink');
   const rsvpUrl = `${window.location.origin}${eventData.rsvpPath}`;
   const inBodyUrl = eventData.inBodyPath ? `${window.location.origin}${eventData.inBodyPath}` : '';
   const celaviveRaffleUrl = eventData.celaviveRafflePath ? `${window.location.origin}${eventData.celaviveRafflePath}` : '';
   const wellnessQuizUrl = eventData.wellnessQuizPath ? `${window.location.origin}${eventData.wellnessQuizPath}` : '';
+  const groupDeliveryUrl = eventData.groupDeliveryPath ? `${window.location.origin}${eventData.groupDeliveryPath}` : '';
 
   if (qrImage) {
     qrImage.src = buildQrUrl(rsvpUrl);
@@ -1438,6 +1476,19 @@ function attachEventDetailHandlers(eventData) {
     });
   }
 
+  if (groupDeliveryQrImage && groupDeliveryUrl) {
+    groupDeliveryQrImage.src = buildQrUrl(groupDeliveryUrl);
+    groupDeliveryQrImage.alt = `Branded QR code for ${eventData.eventLabel} Group Delivery`;
+  }
+
+  if (groupDeliveryQrOpenLink && groupDeliveryUrl) {
+    groupDeliveryQrOpenLink.href = buildQrUrl(groupDeliveryUrl);
+    groupDeliveryQrOpenLink.addEventListener('click', (event) => {
+      event.preventDefault();
+      openBrandedQrTab({ ...eventData, eventLabel: `${eventData.eventLabel} Group Delivery` }, groupDeliveryUrl);
+    });
+  }
+
   const copyButtons = Array.from(document.querySelectorAll('[data-copy-url]'));
   const eventStatus = document.getElementById('eventActionStatus');
 
@@ -1483,8 +1534,11 @@ function attachEventDetailHandlers(eventData) {
   const wellnessPrizeList = document.getElementById('wellnessPrizeList');
   const addWellnessPrizeButton = document.getElementById('addWellnessPrizeButton');
   const distributeWellnessPrizesButton = document.getElementById('distributeWellnessPrizesButton');
+  const submitGroupDeliveryCycleButton = document.getElementById('submitGroupDeliveryCycleButton');
+  const resetGroupDeliveryButtons = Array.from(document.querySelectorAll('[data-reset-group-delivery-pin]'));
   const closeRsvpSettingsButtons = Array.from(document.querySelectorAll('[data-close-rsvp-settings]'));
   const managementStatus = document.getElementById('eventManagementStatus');
+  const groupDeliveryAdminStatus = document.getElementById('groupDeliveryAdminStatus');
 
   const readWellnessRaffleDraft = () => {
     if (!wellnessRaffleForm || !wellnessPrizeList) return null;
@@ -1798,6 +1852,61 @@ function attachEventDetailHandlers(eventData) {
     });
   }
 
+  if (submitGroupDeliveryCycleButton) {
+    submitGroupDeliveryCycleButton.addEventListener('click', async () => {
+      const confirmed = await showConfirmModal({
+        title: 'Submit current cycle?',
+        message: 'This locks the current cycle and opens the next blank cycle on the same public link.',
+        confirmLabel: 'Submit Cycle'
+      });
+
+      if (!confirmed) return;
+
+      setStatus(groupDeliveryAdminStatus, '', '');
+
+      try {
+        setButtonLoading(submitGroupDeliveryCycleButton, true, 'Submitting...');
+        const result = await fetchJson(`/events/${eventData.eventId}/group-delivery-cycles/current/submit`, {
+          method: 'PATCH'
+        });
+        setStatus(groupDeliveryAdminStatus, result.message, 'is-success');
+        navigate(`/events/${encodeURIComponent(eventData.eventId)}`, true);
+      } catch (error) {
+        setStatus(groupDeliveryAdminStatus, error.message, 'is-error');
+      } finally {
+        setButtonLoading(submitGroupDeliveryCycleButton, false, 'Mark Current Cycle Submitted');
+      }
+    });
+  }
+
+  resetGroupDeliveryButtons.forEach((button) => {
+    button.addEventListener('click', async () => {
+      const co = button.getAttribute('data-co') || '';
+      const confirmed = await showConfirmModal({
+        title: 'Reset this PIN?',
+        message: `Clear the PIN for ${co} so they can create a new one from the public link?`,
+        confirmLabel: 'Reset PIN'
+      });
+
+      if (!confirmed) return;
+
+      setStatus(groupDeliveryAdminStatus, '', '');
+
+      try {
+        setButtonLoading(button, true, 'Resetting...');
+        const result = await fetchJson(`/events/${eventData.eventId}/group-delivery-users/${encodeURIComponent(co)}/reset-pin`, {
+          method: 'PATCH'
+        });
+        setStatus(groupDeliveryAdminStatus, result.message, 'is-success');
+        navigate(`/events/${encodeURIComponent(eventData.eventId)}`, true);
+      } catch (error) {
+        setStatus(groupDeliveryAdminStatus, error.message, 'is-error');
+      } finally {
+        setButtonLoading(button, false, 'Reset PIN');
+      }
+    });
+  });
+
   if (deleteButton) {
     deleteButton.addEventListener('click', async () => {
       const confirmed = await showConfirmModal({
@@ -1916,6 +2025,158 @@ function attachAttendanceHandlers(eventData) {
       setButtonLoading(submitButton, false, 'Save Attendance');
     }
   });
+}
+
+function attachGroupDeliveryHandlers(eventData) {
+  const coForm = document.getElementById('groupDeliveryCoForm');
+  const pinForm = document.getElementById('groupDeliveryPinForm');
+  const entryForm = document.getElementById('groupDeliveryEntryForm');
+  const forgotButton = document.getElementById('groupDeliveryForgotPinButton');
+  const logoutButton = document.getElementById('groupDeliveryLogoutButton');
+  const session = getGroupDeliverySession();
+
+  if (session) {
+    void loadGroupDeliveryRecords(eventData);
+  }
+
+  if (coForm) {
+    coForm.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const status = document.getElementById('groupDeliveryAuthStatus');
+      const submitButton = coForm.querySelector('button[type="submit"]');
+      const co = coForm.co.value;
+
+      setStatus(status, '', '');
+
+      try {
+        setButtonLoading(submitButton, true, 'Checking...');
+        const result = await fetchJson('/group-delivery/auth/start', {
+          method: 'POST',
+          body: { co }
+        });
+        showGroupDeliveryPinStage(result.co, result.mode, result.message || '');
+      } catch (error) {
+        setStatus(status, error.message, 'is-error');
+      } finally {
+        setButtonLoading(submitButton, false, 'Continue');
+      }
+    });
+  }
+
+  if (pinForm) {
+    pinForm.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const mode = pinForm.dataset.mode || 'login';
+      const status = document.getElementById('groupDeliveryAuthStatus');
+      const submitButton = pinForm.querySelector('button[type="submit"]');
+      const body = {
+        co: pinForm.co.value,
+        pin: pinForm.pin.value
+      };
+
+      if (mode === 'register') {
+        body.confirmPin = pinForm.confirmPin.value;
+      }
+
+      setStatus(status, '', '');
+
+      try {
+        setButtonLoading(submitButton, true, mode === 'register' ? 'Creating PIN...' : 'Logging in...');
+        const result = await fetchJson(mode === 'register' ? '/group-delivery/auth/register' : '/group-delivery/auth/login', {
+          method: 'POST',
+          body
+        });
+        setGroupDeliverySession(result.token);
+        setStatus(status, '', '');
+        await loadGroupDeliveryRecords(eventData);
+      } catch (error) {
+        setStatus(status, error.message, 'is-error');
+      } finally {
+        setButtonLoading(submitButton, false, mode === 'register' ? 'Create PIN' : 'Log In');
+      }
+    });
+  }
+
+  if (forgotButton) {
+    forgotButton.addEventListener('click', async () => {
+      const co = document.getElementById('groupDeliveryPinCo')?.value || document.getElementById('groupDeliveryCo')?.value || '';
+      const status = document.getElementById('groupDeliveryAuthStatus');
+      setStatus(status, '', '');
+
+      try {
+        setButtonLoading(forgotButton, true, 'Requesting...');
+        const result = await fetchJson('/group-delivery/auth/forgot-pin', {
+          method: 'POST',
+          body: { co }
+        });
+        clearGroupDeliverySession();
+        setStatus(status, result.message, 'is-success');
+      } catch (error) {
+        setStatus(status, error.message, 'is-error');
+      } finally {
+        setButtonLoading(forgotButton, false, 'Forgot PIN');
+      }
+    });
+  }
+
+  if (logoutButton) {
+    logoutButton.addEventListener('click', () => {
+      clearGroupDeliverySession();
+      renderPage(renderPublicGroupDeliveryPage(eventData));
+      attachPublicShowcase();
+      syncDynamicHeaderTitle();
+      attachGroupDeliveryHandlers(eventData);
+    });
+  }
+
+  if (entryForm) {
+    entryForm.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const status = document.getElementById('groupDeliveryEntryStatus');
+      const submitButton = entryForm.querySelector('button[type="submit"]');
+
+      setStatus(status, '', '');
+
+      try {
+        setButtonLoading(submitButton, true, 'Saving...');
+        const result = await groupDeliveryFetchJson(`/group-delivery/${eventData.eventId}/my-records`, {
+          method: 'POST',
+          body: {
+            co: entryForm.co.value,
+            fullName: entryForm.fullName.value,
+            birthday: entryForm.birthday.value,
+            mobileNumber: entryForm.mobileNumber.value,
+            emailAddress: entryForm.emailAddress.value,
+            address: entryForm.address.value,
+            profession: entryForm.profession.value
+          }
+        });
+        renderGroupDeliveryWorkspace(eventData, result);
+        setStatus(document.getElementById('groupDeliveryEntryStatus'), result.message, 'is-success');
+        attachGroupDeliveryHandlers(eventData);
+      } catch (error) {
+        if (/session|log in/i.test(error.message)) {
+          clearGroupDeliverySession();
+        }
+        setStatus(status, error.message, 'is-error');
+      } finally {
+        setButtonLoading(submitButton, false, 'Save Entry');
+      }
+    });
+  }
+}
+
+async function loadGroupDeliveryRecords(eventData) {
+  const status = document.getElementById('groupDeliveryAuthStatus');
+
+  try {
+    const result = await groupDeliveryFetchJson(`/group-delivery/${eventData.eventId}/my-records`);
+    renderGroupDeliveryWorkspace(eventData, result);
+    attachGroupDeliveryHandlers(eventData);
+  } catch (error) {
+    clearGroupDeliverySession();
+    setStatus(status, error.message, 'is-error');
+  }
 }
 
 function attachInBodyHandlers(eventData) {
@@ -2961,11 +3222,13 @@ function renderEventDetailPage(eventData, previews = {}) {
   const isInBody = isInBodyEvent(eventData);
   const isCelaviveRaffle = isCelaviveRaffleEvent(eventData);
   const isWellnessQuiz = isWellnessQuizEvent(eventData);
+  const isGroupDelivery = isGroupDeliveryEvent(eventData);
   const rsvpUrl = `${window.location.origin}${eventData.rsvpPath}`;
   const attendanceUrl = `${window.location.origin}${eventData.attendancePath}`;
   const inBodyUrl = eventData.inBodyPath ? `${window.location.origin}${eventData.inBodyPath}` : '';
   const celaviveRaffleUrl = eventData.celaviveRafflePath ? `${window.location.origin}${eventData.celaviveRafflePath}` : '';
   const wellnessQuizUrl = eventData.wellnessQuizPath ? `${window.location.origin}${eventData.wellnessQuizPath}` : '';
+  const groupDeliveryUrl = eventData.groupDeliveryPath ? `${window.location.origin}${eventData.groupDeliveryPath}` : '';
   const inBodyCount = (previews.inBodyResponses || []).length;
   const celaviveRaffleCount = (previews.celaviveRaffleResponses || []).length;
   const wellnessQuizCount = (previews.wellnessQuizResponses || []).length;
@@ -3008,7 +3271,7 @@ function renderEventDetailPage(eventData, previews = {}) {
             </div>
             <div class="detail-link-grid">
               ${
-                isInBody || isCelaviveRaffle || isWellnessQuiz
+                isInBody || isCelaviveRaffle || isWellnessQuiz || isGroupDelivery
                   ? ''
                   : `
                     <div class="link-stack modern-link-stack">
@@ -3030,6 +3293,21 @@ function renderEventDetailPage(eventData, previews = {}) {
                       })}
                     </div>
                   `
+              }
+              ${
+                isGroupDelivery
+                  ? `
+                    <div class="link-stack modern-link-stack">
+                      <label>Group Delivery Link</label>
+                      ${renderEventUrlControl({
+                        url: groupDeliveryUrl,
+                        openHref: eventData.groupDeliveryPath,
+                        copyLabel: 'Group Delivery link',
+                        openLabel: 'Open Group Delivery'
+                      })}
+                    </div>
+                  `
+                  : ''
               }
               ${
                 isInBody
@@ -3080,7 +3358,7 @@ function renderEventDetailPage(eventData, previews = {}) {
             <div id="eventActionStatus" class="status event-link-status" aria-live="polite"></div>
             <div class="event-link-grid detail-response-grid detail-response-grid-inline">
               ${
-                isInBody || isCelaviveRaffle || isWellnessQuiz
+                isInBody || isCelaviveRaffle || isWellnessQuiz || isGroupDelivery
                   ? ''
                   : `
                     <a href="/events/${encodeURIComponent(eventData.eventId)}/rsvp-responses" data-link class="action-card action-card-strong">
@@ -3146,11 +3424,12 @@ function renderEventDetailPage(eventData, previews = {}) {
             </div>
           </section>
           ${isWellnessQuiz ? renderWellnessRaffleEditor(eventData) : ''}
+          ${isGroupDelivery ? renderGroupDeliveryAdminPanel(eventData, previews) : ''}
         </div>
 
         <aside class="detail-side-stack">
           ${
-            isInBody || isCelaviveRaffle || isWellnessQuiz
+            isInBody || isCelaviveRaffle || isWellnessQuiz || isGroupDelivery
               ? ''
               : `
                 <section class="workspace-panel qr-card${eventData.isArchived ? '' : ' qr-card-active'}">
@@ -3166,6 +3445,24 @@ function renderEventDetailPage(eventData, previews = {}) {
                   <a id="qrOpenLink" class="button-link button-link-secondary" target="_blank" rel="noreferrer" href="${escapeAttribute(buildQrUrl(rsvpUrl))}">Open QR in new tab</a>
                 </section>
               `
+          }
+          ${
+            isGroupDelivery
+              ? `
+                <section class="workspace-panel qr-card qr-card-active">
+                  <span class="section-kicker">Group Delivery QR</span>
+                  <h3>Group Delivery QR code</h3>
+                  <p>Share this QR so C/O users can log in and submit their own cycle entries.</p>
+                  <div class="qr-panel">
+                    <div class="qr-image-stack">
+                      <img id="groupDeliveryQrImage" class="qr-image" alt="Group Delivery QR code">
+                      <img class="qr-brand-mark" src="/assets/logo/Genesys_Logo2.svg" alt="" aria-hidden="true">
+                    </div>
+                  </div>
+                  <a id="groupDeliveryQrOpenLink" class="button-link button-link-secondary" target="_blank" rel="noreferrer" href="${escapeAttribute(buildQrUrl(groupDeliveryUrl))}">Open QR in new tab</a>
+                </section>
+              `
+              : ''
           }
           ${
             isInBody
@@ -3243,9 +3540,73 @@ function renderEventDetailPage(eventData, previews = {}) {
           }
         </aside>
       </section>
-      ${eventData.isArchived || isInBody || isWellnessQuiz ? '' : renderRsvpSettingsModal(eventData)}
+      ${eventData.isArchived || isInBody || isWellnessQuiz || isGroupDelivery ? '' : renderRsvpSettingsModal(eventData)}
     `
   });
+}
+
+function renderGroupDeliveryAdminPanel(eventData, previews = {}) {
+  const users = previews.groupDeliveryUsers || [];
+  const cycles = previews.groupDeliveryCycles || [];
+  const currentCycle = previews.groupDeliveryCurrentCycle || cycles.find((cycle) => cycle.status === 'open') || {};
+
+  return `
+    <section class="workspace-panel workspace-panel-large group-delivery-admin-panel">
+      <div class="workspace-heading">
+        <div>
+          <span class="section-kicker">Group Delivery</span>
+          <h2>C/O access and cycles</h2>
+          <p>Approve PIN resets and submit the current cycle when entries are ready for the next blank cycle.</p>
+        </div>
+        <span class="response-meta-pill">Cycle ${escapeHtml(currentCycle.cycleNumber || '1')}</span>
+      </div>
+      <div class="group-delivery-admin-actions">
+        <button
+          id="submitGroupDeliveryCycleButton"
+          type="button"
+          class="button-link"
+          data-event-id="${escapeAttribute(eventData.eventId)}"
+        >Mark Current Cycle Submitted</button>
+        <div id="groupDeliveryAdminStatus" class="status" aria-live="polite"></div>
+      </div>
+      <div class="group-delivery-admin-grid">
+        <section class="group-delivery-admin-block">
+          <strong>C/O Users</strong>
+          ${users.length ? `
+            <div class="group-delivery-user-list">
+              ${users.map((user) => `
+                <div class="group-delivery-user-row">
+                  <span>${escapeHtml(user.co)}</span>
+                  <span>${escapeHtml(user.registered ? 'Registered' : 'Not registered')}</span>
+                  <span>${escapeHtml(formatGroupDeliveryStatus(user.status))}</span>
+                  <button
+                    type="button"
+                    class="button-link button-link-secondary"
+                    data-reset-group-delivery-pin
+                    data-co="${escapeAttribute(user.co)}"
+                  >Reset PIN</button>
+                </div>
+              `).join('')}
+            </div>
+          ` : '<p class="muted-copy">No C/O users have registered yet.</p>'}
+        </section>
+        <section class="group-delivery-admin-block">
+          <strong>Cycles</strong>
+          ${cycles.length ? `
+            <div class="group-delivery-cycle-list">
+              ${cycles.map((cycle) => `
+                <div class="group-delivery-history-row">
+                  <span>Cycle ${escapeHtml(cycle.cycleNumber)}</span>
+                  <span>${escapeHtml(cycle.status === 'submitted' ? 'Submitted' : 'Open')}</span>
+                  <span>${escapeHtml(cycle.submittedAt ? formatMetricDateTime(cycle.submittedAt) : formatMetricDateTime(cycle.openedAt))}</span>
+                </div>
+              `).join('')}
+            </div>
+          ` : '<p class="muted-copy">Cycle 1 will open automatically.</p>'}
+        </section>
+      </div>
+    </section>
+  `;
 }
 
 function renderWellnessRaffleEditor(eventData) {
@@ -4023,6 +4384,190 @@ function renderPublicWellnessQuizPage(eventData) {
   `;
 }
 
+function renderPublicGroupDeliveryPage(eventData, currentCycle = {}) {
+  const eventDateTime = eventData.displayDateTime || formatMetricDateTime(eventData.dateTime);
+  const hasSession = Boolean(getGroupDeliverySession());
+
+  return `
+    <div class="public-shell-modern">
+      <section class="public-hero-modern">
+        <div class="public-slideshow" aria-hidden="true">
+          ${publicCelaviveSlides.map((src, index) => `<img src="${src}" alt="" class="${index === 0 ? 'is-active' : ''}">`).join('')}
+        </div>
+        <div class="public-hero-overlay"></div>
+        <div class="public-hero-content">
+          <div class="public-logo-mark">
+            <img src="/assets/logo/Genesys_Logo2.svg" alt="GeneSys logo">
+          </div>
+          <span class="eyebrow">Group Delivery</span>
+          <h1 data-dynamic-title>${escapeHtml(eventData.eventLabel || 'Group Delivery')}</h1>
+          <p class="lede">Log in with your C/O PIN to view your own cycle history and submit your current delivery entry.</p>
+          <div class="event-meta">
+            <span>${escapeHtml(eventData.location || '')}</span>
+            <span>${escapeHtml(eventDateTime)}</span>
+            <span>Cycle ${escapeHtml(currentCycle.cycleNumber || '1')}</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="public-form-shell">
+        <div class="form-card public-form-card group-delivery-card">
+          <div id="groupDeliveryAuthStage" ${hasSession ? 'hidden' : ''}>
+            <div class="panel-head">
+              <span class="section-kicker">C/O Access</span>
+              <h2>Enter your C/O</h2>
+              <p>Your C/O identifies your own delivery records. Your PIN keeps your entries private.</p>
+            </div>
+            <form id="groupDeliveryCoForm" class="modern-form">
+              <div class="field full">
+                <label for="groupDeliveryCo">C/O <span class="required">*</span></label>
+                <input id="groupDeliveryCo" name="co" type="text" autocomplete="organization" required>
+              </div>
+              <div class="form-submit-row">
+                <button type="submit">Continue</button>
+                <div id="groupDeliveryAuthStatus" class="status" aria-live="polite"></div>
+              </div>
+            </form>
+            <form id="groupDeliveryPinForm" class="modern-form group-delivery-pin-form" hidden>
+              <input id="groupDeliveryPinCo" name="co" type="hidden">
+              <div class="field full">
+                <label for="groupDeliveryPin">PIN <span class="required">*</span></label>
+                <input id="groupDeliveryPin" name="pin" type="password" inputmode="numeric" pattern="\\d{4,6}" minlength="4" maxlength="6" required>
+              </div>
+              <div id="groupDeliveryConfirmPinField" class="field full" hidden>
+                <label for="groupDeliveryConfirmPin">Confirm PIN <span class="required">*</span></label>
+                <input id="groupDeliveryConfirmPin" name="confirmPin" type="password" inputmode="numeric" pattern="\\d{4,6}" minlength="4" maxlength="6">
+              </div>
+              <div class="form-submit-row">
+                <button type="submit">Log In</button>
+                <button id="groupDeliveryForgotPinButton" type="button" class="button-link button-link-secondary">Forgot PIN</button>
+              </div>
+            </form>
+          </div>
+          <div id="groupDeliveryWorkspace" ${hasSession ? '' : 'hidden'}>
+            <div class="group-delivery-loading">Loading your records...</div>
+          </div>
+          ${renderPoweredFooter('footer-note auth-legal public-form-powered')}
+        </div>
+      </section>
+    </div>
+  `;
+}
+
+function showGroupDeliveryPinStage(co, mode, message = '') {
+  const coForm = document.getElementById('groupDeliveryCoForm');
+  const pinForm = document.getElementById('groupDeliveryPinForm');
+  const pinCo = document.getElementById('groupDeliveryPinCo');
+  const confirmField = document.getElementById('groupDeliveryConfirmPinField');
+  const confirmInput = document.getElementById('groupDeliveryConfirmPin');
+  const submitButton = pinForm ? pinForm.querySelector('button[type="submit"]') : null;
+  const status = document.getElementById('groupDeliveryAuthStatus');
+
+  if (!pinForm || !coForm || !pinCo || !confirmField || !confirmInput || !submitButton) return;
+
+  if (mode === 'pending-reset') {
+    pinForm.hidden = true;
+    setStatus(status, message || 'Your PIN reset is waiting for admin approval.', 'is-error');
+    return;
+  }
+
+  coForm.hidden = true;
+  pinForm.hidden = false;
+  pinForm.dataset.mode = mode === 'register' ? 'register' : 'login';
+  pinCo.value = co;
+  confirmField.hidden = mode !== 'register';
+  confirmInput.required = mode === 'register';
+  submitButton.textContent = mode === 'register' ? 'Create PIN' : 'Log In';
+  setStatus(status, mode === 'register' ? 'Create a unique 4-6 digit PIN.' : 'Enter your PIN to continue.', '');
+}
+
+function renderGroupDeliveryWorkspace(eventData, result) {
+  const authStage = document.getElementById('groupDeliveryAuthStage');
+  const workspace = document.getElementById('groupDeliveryWorkspace');
+
+  if (!workspace) return;
+
+  if (authStage) authStage.hidden = true;
+  workspace.hidden = false;
+  workspace.innerHTML = renderGroupDeliveryRecordWorkspace(eventData, result);
+}
+
+function renderGroupDeliveryRecordWorkspace(eventData, result = {}) {
+  const current = result.currentEntry || {};
+  const history = result.history || [];
+  const user = result.user || {};
+  const cycle = result.currentCycle || {};
+
+  return `
+    <div class="panel-head">
+      <span class="section-kicker">Cycle ${escapeHtml(cycle.cycleNumber || '')}</span>
+      <h2>Your Group Delivery Entry</h2>
+      <p>Only records for ${escapeHtml(user.co || '')} are shown here.</p>
+    </div>
+    <div class="group-delivery-session-bar">
+      <strong>${escapeHtml(user.co || '')}</strong>
+      <button id="groupDeliveryLogoutButton" type="button" class="button-link button-link-secondary">Logout</button>
+    </div>
+    ${history.length ? `
+      <section class="group-delivery-history">
+        <strong>Submitted cycle history</strong>
+        ${history.map((entry) => `
+          <div class="group-delivery-history-row">
+            <span>Cycle ${escapeHtml(entry.cycleNumber)}</span>
+            <span>${escapeHtml(entry.fullName || 'No name saved')}</span>
+            <span>${escapeHtml(entry.updatedAt ? formatMetricDateTime(entry.updatedAt) : '')}</span>
+          </div>
+        `).join('')}
+      </section>
+    ` : ''}
+    <form id="groupDeliveryEntryForm" class="modern-form">
+      <div class="grid">
+        <div class="field full">
+          <label for="groupDeliveryEntryCo">C/O</label>
+          <input id="groupDeliveryEntryCo" name="co" type="text" value="${escapeAttribute(user.co || '')}" readonly>
+        </div>
+        ${renderGroupDeliveryEntryFields(current)}
+      </div>
+      <div class="form-submit-row">
+        <button type="submit">Save Entry</button>
+        <div id="groupDeliveryEntryStatus" class="status" aria-live="polite"></div>
+      </div>
+    </form>
+  `;
+}
+
+function renderGroupDeliveryEntryFields(entry = {}) {
+  return `
+    <div class="field full">
+      <label for="fullName">Full Name <span class="required">*</span></label>
+      <input id="fullName" name="fullName" type="text" autocomplete="name" required value="${escapeAttribute(entry.fullName || '')}">
+    </div>
+    <div class="field">
+      <label for="birthday">Birthday <span class="required">*</span></label>
+      <input id="birthday" name="birthday" type="date" data-mobile-picker required value="${escapeAttribute(entry.birthday || '')}">
+    </div>
+    <div class="field">
+      <label for="mobileNumber">Mobile Number <span class="required">*</span></label>
+      <input id="mobileNumber" name="mobileNumber" type="tel" inputmode="numeric" placeholder="09XXXXXXXXX" required value="${escapeAttribute(entry.mobileNumber || '')}">
+    </div>
+    <div class="field">
+      <label for="emailAddress">Email Address <span class="required">*</span></label>
+      <input id="emailAddress" name="emailAddress" type="email" autocomplete="email" required value="${escapeAttribute(entry.emailAddress || '')}">
+    </div>
+    <div class="field">
+      <label for="profession">Profession <span class="required">*</span></label>
+      <select id="profession" name="profession" required>
+        <option value="">Select profession</option>
+        ${renderProfessionOptions(entry.profession || '')}
+      </select>
+    </div>
+    <div class="field full">
+      <label for="address">Address <span class="required">*</span></label>
+      <textarea id="address" name="address" required>${escapeHtml(entry.address || '')}</textarea>
+    </div>
+  `;
+}
+
 function buildWellnessWheelSegments(raffle) {
   const prizes = (raffle.prizes || []).filter((prize) => prize.available && Number(prize.effectiveChance) > 0);
   if (!prizes.length) {
@@ -4605,6 +5150,8 @@ function renderEventCard(eventData) {
               `
             : isWellnessQuiz
               ? `<a href="${escapeAttribute(eventData.wellnessQuizPath)}" target="_blank" rel="noreferrer" class="button-link button-link-secondary">Open Wellness Quiz</a>`
+            : isGroupDelivery
+              ? `<a href="${escapeAttribute(eventData.groupDeliveryPath)}" target="_blank" rel="noreferrer" class="button-link button-link-secondary">Open Group Delivery</a>`
             : `
               <a href="${escapeAttribute(eventData.rsvpPath)}" target="_blank" rel="noreferrer" class="button-link button-link-secondary">Open RSVP</a>
               <a href="${escapeAttribute(eventData.attendancePath)}" target="_blank" rel="noreferrer" class="button-link button-link-secondary">Open Attendance</a>
@@ -4988,7 +5535,8 @@ function summarizeEvents(events) {
       (eventData.attendancePath && !isCelaviveRaffleEvent(eventData) && !isInBodyEvent(eventData) && !isWellnessQuizEvent(eventData) ? 1 : 0) +
       (eventData.inBodyPath ? 1 : 0) +
       (eventData.celaviveRafflePath ? 1 : 0) +
-      (eventData.wellnessQuizPath ? 1 : 0),
+      (eventData.wellnessQuizPath ? 1 : 0) +
+      (eventData.groupDeliveryPath ? 1 : 0),
     0
   );
 
@@ -5054,6 +5602,7 @@ function renderSelectedEventQuickPanel(eventData) {
   const isInBody = isInBodyEvent(eventData);
   const isCelaviveRaffle = isCelaviveRaffleEvent(eventData);
   const isWellnessQuiz = isWellnessQuizEvent(eventData);
+  const isGroupDelivery = isGroupDeliveryEvent(eventData);
 
   return `
     <div class="selected-event-quick-panel">
@@ -5098,6 +5647,17 @@ function renderSelectedEventQuickPanel(eventData) {
                 <a href="/events/${encodeURIComponent(eventData.eventId)}/wellness-quiz-responses" data-link class="button-link button-link-secondary">
                   <span class="selected-event-action-icon">${renderEventActionIcon('responses')}</span>
                   <span>Quiz Responses</span>
+                </a>
+              `
+            : isGroupDelivery
+              ? `
+                <a href="${escapeAttribute(eventData.groupDeliveryPath)}" target="_blank" rel="noreferrer" class="button-link button-link-secondary">
+                  <span class="selected-event-action-icon">${renderEventActionIcon('external')}</span>
+                  <span>Open Group Delivery</span>
+                </a>
+                <a href="/events/${encodeURIComponent(eventData.eventId)}" data-link class="button-link button-link-secondary">
+                  <span class="selected-event-action-icon">${renderEventActionIcon('responses')}</span>
+                  <span>Manage C/O & Cycles</span>
                 </a>
               `
             : `
@@ -5216,8 +5776,20 @@ function isWellnessQuizEvent(eventData) {
   return String(eventData && eventData.eventType ? eventData.eventType : '').trim() === WELLNESS_QUIZ_EVENT_TYPE;
 }
 
+function isGroupDeliveryEvent(eventData) {
+  return String(eventData && eventData.eventType ? eventData.eventType : '').trim() === GROUP_DELIVERY_EVENT_TYPE;
+}
+
 function getEventTypeDisplayLabel(type) {
   return isInBodyEvent({ eventType: type }) ? INBODY_EVENT_DISPLAY_LABEL : type;
+}
+
+function formatGroupDeliveryStatus(status) {
+  const normalized = String(status || '').trim();
+  if (normalized === 'reset-requested') return 'Reset Requested';
+  if (normalized === 'reset-approved') return 'Reset Approved';
+  if (normalized === 'inactive') return 'Inactive';
+  return 'Active';
 }
 
 function formatSlotLabel(slot) {
@@ -5519,6 +6091,22 @@ async function fetchJson(path, options = {}) {
   return result;
 }
 
+async function groupDeliveryFetchJson(path, options = {}) {
+  const token = getGroupDeliverySession();
+
+  if (!token) {
+    throw new Error('Please log in with your C/O PIN.');
+  }
+
+  return fetchJson(path, {
+    ...options,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      ...(options.headers || {})
+    }
+  });
+}
+
 async function apiFetch(path, options = {}) {
   let lastError;
 
@@ -5549,9 +6137,33 @@ async function apiFetch(path, options = {}) {
   throw lastError || new Error('Unable to reach the API.');
 }
 
-function renderProfessionOptions() {
+function getGroupDeliverySession() {
+  try {
+    return window.localStorage.getItem(GROUP_DELIVERY_SESSION_KEY) || '';
+  } catch (error) {
+    return '';
+  }
+}
+
+function setGroupDeliverySession(token) {
+  try {
+    window.localStorage.setItem(GROUP_DELIVERY_SESSION_KEY, token);
+  } catch (error) {
+    // Local Storage can be unavailable in private browsing; the next request will prompt login again.
+  }
+}
+
+function clearGroupDeliverySession() {
+  try {
+    window.localStorage.removeItem(GROUP_DELIVERY_SESSION_KEY);
+  } catch (error) {
+    // Ignore storage cleanup failures.
+  }
+}
+
+function renderProfessionOptions(selectedValue = '') {
   return state.config.professions
-    .map((profession) => `<option value="${escapeAttribute(profession)}">${escapeHtml(profession)}</option>`)
+    .map((profession) => `<option value="${escapeAttribute(profession)}"${profession === selectedValue ? ' selected' : ''}>${escapeHtml(profession)}</option>`)
     .join('');
 }
 
