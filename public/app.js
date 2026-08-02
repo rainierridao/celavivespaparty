@@ -7,6 +7,10 @@ const CELAVIVE_RAFFLE_EVENT_TYPE = 'Celavive Spa Party - Raffle Entry';
 const BEAUTY_CARAVAN_EVENT_TYPE = 'Beauty Caravan';
 const WELLNESS_QUIZ_EVENT_TYPE = 'Wellness Quiz';
 const GROUP_DELIVERY_EVENT_TYPE = 'Group Delivery';
+const CELAVIVE_SPA_PARTY_EVENT_TYPE = 'Celavive Spa Party';
+const WELLNESS_WEDNESDAY_EVENT_TYPE = 'Wellness Wednesday';
+// Standard RSVP + attendance events: same public pages and "view" responses link
+const STANDARD_RSVP_EVENT_TYPES = [CELAVIVE_SPA_PARTY_EVENT_TYPE, WELLNESS_WEDNESDAY_EVENT_TYPE];
 const DEFAULT_WELLNESS_RAFFLE_WIN_CHANCE = 65;
 const GROUP_DELIVERY_SESSION_KEY = 'groupDeliverySession';
 const apiBaseCandidates =
@@ -113,8 +117,8 @@ async function loadConfig() {
     state.config = await response.json();
   } catch (error) {
     state.config = {
-      eventName: 'Celavive Spa Party',
-      eventTypes: ['OPP', 'Celavive Spa Party', BEAUTY_CARAVAN_EVENT_TYPE, CELAVIVE_RAFFLE_EVENT_TYPE, INBODY_EVENT_TYPE, WELLNESS_QUIZ_EVENT_TYPE, GROUP_DELIVERY_EVENT_TYPE],
+      eventName: CELAVIVE_SPA_PARTY_EVENT_TYPE,
+      eventTypes: ['OPP', CELAVIVE_SPA_PARTY_EVENT_TYPE, WELLNESS_WEDNESDAY_EVENT_TYPE, BEAUTY_CARAVAN_EVENT_TYPE, CELAVIVE_RAFFLE_EVENT_TYPE, INBODY_EVENT_TYPE, WELLNESS_QUIZ_EVENT_TYPE],
       professions: [],
       googleSheetsConfigured: false
     };
@@ -473,7 +477,7 @@ async function renderRoute() {
       const isView = identifier.endsWith('view');
       const result = await fetchJson(`/public-events/${identifier}`);
 
-      if (isView && result.event && result.event.eventType === 'Celavive Spa Party') {
+      if (isView && isStandardRsvpEvent(result.event)) {
         const responsesResult = await fetchJson(`/public-events/${identifier}/rsvp-responses`);
         renderPage(renderResponsesPage('RSVP Responses', responsesResult.event, responsesResult.responses, 'rsvp'));
         attachPublicShowcase();
@@ -5778,6 +5782,10 @@ function isWellnessQuizEvent(eventData) {
 
 function isGroupDeliveryEvent(eventData) {
   return String(eventData && eventData.eventType ? eventData.eventType : '').trim() === GROUP_DELIVERY_EVENT_TYPE;
+}
+
+function isStandardRsvpEvent(eventData) {
+  return STANDARD_RSVP_EVENT_TYPES.includes(String(eventData && eventData.eventType ? eventData.eventType : '').trim());
 }
 
 function getEventTypeDisplayLabel(type) {
