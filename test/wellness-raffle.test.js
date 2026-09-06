@@ -138,10 +138,59 @@ test('public event sanitization removes internal raffle storage fields', () => {
   const event = __test.sanitizePublicEvent({
     eventId: 'event-1',
     rowNumber: 4,
+    celaviveSurveySheetName: 'Internal Survey',
     wellnessRaffleConfig: validConfig,
     wellnessRaffleSpinSheetName: 'Internal Spins'
   });
   assert.deepEqual(event, { eventId: 'event-1' });
+});
+
+test('normalizes valid Celavive activity survey payloads', () => {
+  const payload = __test.normalizeCelaviveSurveyPayload({
+    fullName: '  Jane Guest  ',
+    mobileNumber: '09171234567',
+    emailAddress: ' JANE@EXAMPLE.COM ',
+    profession: 'Teacher',
+    invitedBy: 'Host Name',
+    futureActivities: ['Yoga', 'Yoga', 'Zumba Nights']
+  });
+
+  assert.equal(payload.fullName, 'Jane Guest');
+  assert.equal(payload.mobileNumber, '09171234567');
+  assert.equal(payload.emailAddress, 'jane@example.com');
+  assert.deepEqual(payload.futureActivities, ['Yoga', 'Zumba Nights']);
+});
+
+test('rejects invalid Celavive activity survey payloads', () => {
+  const validPayload = {
+    fullName: 'Jane Guest',
+    mobileNumber: '09171234567',
+    emailAddress: 'jane@example.com',
+    profession: 'Teacher',
+    invitedBy: 'Host Name',
+    futureActivities: ['Yoga']
+  };
+
+  assert.throws(() => __test.normalizeCelaviveSurveyPayload({ ...validPayload, mobileNumber: '' }), /Mobile number/);
+  assert.throws(() => __test.normalizeCelaviveSurveyPayload({ ...validPayload, emailAddress: '' }), /Email address/);
+  assert.throws(() => __test.normalizeCelaviveSurveyPayload({ ...validPayload, profession: '' }), /profession/);
+  assert.throws(() => __test.normalizeCelaviveSurveyPayload({ ...validPayload, invitedBy: '' }), /Invited by/);
+  assert.throws(() => __test.normalizeCelaviveSurveyPayload({ ...validPayload, futureActivities: [] }), /future activity/);
+  assert.throws(() => __test.normalizeCelaviveSurveyPayload({ ...validPayload, futureActivities: ['Skydiving'] }), /valid Celavive questionnaire options/);
+});
+
+test('decorates only Celavive spa party events with survey paths', () => {
+  const baseEvent = {
+    eventId: 'event-1',
+    eventType: 'Celavive Spa Party',
+    eventLabel: 'Celavive Spa Party - Makati',
+    dateTime: '2026-09-06T10:00:00.000Z',
+    publicSlug: 'celavive-event-1'
+  };
+
+  assert.equal(__test.decorateEvent(baseEvent).celaviveSurveyPath, '/celavive-survey/celavive-event-1');
+  assert.equal(__test.decorateEvent({ ...baseEvent, eventType: 'Wellness Wednesday' }).celaviveSurveyPath, '');
+  assert.equal(__test.decorateEvent({ ...baseEvent, eventType: 'Celavive Spa Party - Raffle Entry' }).celaviveSurveyPath, '');
 });
 
 test('defaults RSVP collection to open for Celavive spa party events', () => {
