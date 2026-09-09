@@ -1496,10 +1496,50 @@ function attachEventDetailHandlers(eventData) {
   const celaviveSurveyUrl = eventData.celaviveSurveyPath ? `${window.location.origin}${eventData.celaviveSurveyPath}` : '';
   const wellnessQuizUrl = eventData.wellnessQuizPath ? `${window.location.origin}${eventData.wellnessQuizPath}` : '';
   const groupDeliveryUrl = eventData.groupDeliveryPath ? `${window.location.origin}${eventData.groupDeliveryPath}` : '';
+  const qrTabs = document.querySelector('[data-qr-tabs]');
 
   if (qrImage) {
     qrImage.src = buildQrUrl(rsvpUrl);
     qrImage.alt = `Branded QR code for ${eventData.eventLabel} RSVP`;
+  }
+
+  if (qrTabs) {
+    const tabButtons = Array.from(qrTabs.querySelectorAll('[data-qr-tab]'));
+    const tabPanels = Array.from(qrTabs.querySelectorAll('[data-qr-panel]'));
+    const activateQrPanel = (nextPanel) => {
+      tabButtons.forEach((button) => {
+        const isActive = button.dataset.qrTab === nextPanel;
+        button.classList.toggle('is-active', isActive);
+        button.setAttribute('aria-selected', isActive ? 'true' : 'false');
+        button.tabIndex = isActive ? 0 : -1;
+      });
+      tabPanels.forEach((panel) => {
+        const isActive = panel.dataset.qrPanel === nextPanel;
+        panel.classList.toggle('is-active', isActive);
+        panel.hidden = !isActive;
+      });
+    };
+
+    tabButtons.forEach((button) => {
+      button.addEventListener('click', () => activateQrPanel(button.dataset.qrTab));
+      button.addEventListener('keydown', (event) => {
+        if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
+          return;
+        }
+
+        event.preventDefault();
+        const currentIndex = tabButtons.indexOf(button);
+        const nextIndex = event.key === 'Home'
+          ? 0
+          : event.key === 'End'
+            ? tabButtons.length - 1
+            : event.key === 'ArrowRight'
+              ? (currentIndex + 1) % tabButtons.length
+              : (currentIndex - 1 + tabButtons.length) % tabButtons.length;
+        tabButtons[nextIndex].focus();
+        activateQrPanel(tabButtons[nextIndex].dataset.qrTab);
+      });
+    });
   }
 
   if (qrOpenLink) {
@@ -3594,6 +3634,43 @@ function renderEventDetailPage(eventData, previews = {}) {
           ${
             isInBody || isCelaviveRaffle || isWellnessQuiz || isGroupDelivery
               ? ''
+              : isCelaviveSpaParty
+                ? `
+                  <section class="workspace-panel qr-card qr-card-tabbed${eventData.isArchived ? '' : ' qr-card-active'}" data-qr-tabs>
+                    <div class="qr-card-head">
+                      <div>
+                        <span class="section-kicker">QR access</span>
+                        <h3 id="eventQrTabsTitle">Event QR codes</h3>
+                      </div>
+                      <div class="qr-tab-list" role="tablist" aria-labelledby="eventQrTabsTitle">
+                        <button type="button" class="qr-tab is-active" id="qrTabRsvp" role="tab" aria-selected="true" aria-controls="qrPanelRsvp" data-qr-tab="rsvp">RSVP</button>
+                        <button type="button" class="qr-tab" id="qrTabSurvey" role="tab" aria-selected="false" aria-controls="qrPanelSurvey" data-qr-tab="survey">Survey</button>
+                      </div>
+                    </div>
+                    <div class="qr-tab-panels">
+                      <div class="qr-tab-panel is-active" id="qrPanelRsvp" role="tabpanel" aria-labelledby="qrTabRsvp" data-qr-panel="rsvp">
+                        <p>Share this QR with potential attendees so they can confirm attendance quickly.</p>
+                        <div class="qr-panel">
+                          <div class="qr-image-stack">
+                            <img id="qrImage" class="qr-image" alt="RSVP QR code">
+                            <img class="qr-brand-mark" src="/assets/logo/Genesys_Logo2.svg" alt="" aria-hidden="true">
+                          </div>
+                        </div>
+                        <a id="qrOpenLink" class="button-link button-link-secondary" target="_blank" rel="noreferrer" href="${escapeAttribute(buildQrUrl(rsvpUrl))}">Open RSVP QR</a>
+                      </div>
+                      <div class="qr-tab-panel" id="qrPanelSurvey" role="tabpanel" aria-labelledby="qrTabSurvey" data-qr-panel="survey" hidden>
+                        <p>Share this QR so guests can choose the activities they are willing to attend next.</p>
+                        <div class="qr-panel">
+                          <div class="qr-image-stack">
+                            <img id="celaviveSurveyQrImage" class="qr-image" alt="Celavive activity survey QR code">
+                            <img class="qr-brand-mark" src="/assets/logo/Genesys_Logo2.svg" alt="" aria-hidden="true">
+                          </div>
+                        </div>
+                        <a id="celaviveSurveyQrOpenLink" class="button-link button-link-secondary" target="_blank" rel="noreferrer" href="${escapeAttribute(buildQrUrl(celaviveSurveyUrl))}">Open Survey QR</a>
+                      </div>
+                    </div>
+                  </section>
+                `
               : `
                 <section class="workspace-panel qr-card${eventData.isArchived ? '' : ' qr-card-active'}">
                   <span class="section-kicker">QR access</span>
@@ -3608,24 +3685,6 @@ function renderEventDetailPage(eventData, previews = {}) {
                   <a id="qrOpenLink" class="button-link button-link-secondary" target="_blank" rel="noreferrer" href="${escapeAttribute(buildQrUrl(rsvpUrl))}">Open QR in new tab</a>
                 </section>
               `
-          }
-          ${
-            isCelaviveSpaParty
-              ? `
-                <section class="workspace-panel qr-card${eventData.isArchived ? '' : ' qr-card-active'}">
-                  <span class="section-kicker">Survey QR</span>
-                  <h3>Future Activities QR code</h3>
-                  <p>Share this QR so guests can choose the activities they are willing to attend next.</p>
-                  <div class="qr-panel">
-                    <div class="qr-image-stack">
-                      <img id="celaviveSurveyQrImage" class="qr-image" alt="Celavive activity survey QR code">
-                      <img class="qr-brand-mark" src="/assets/logo/Genesys_Logo2.svg" alt="" aria-hidden="true">
-                    </div>
-                  </div>
-                  <a id="celaviveSurveyQrOpenLink" class="button-link button-link-secondary" target="_blank" rel="noreferrer" href="${escapeAttribute(buildQrUrl(celaviveSurveyUrl))}">Open QR in new tab</a>
-                </section>
-              `
-              : ''
           }
           ${
             isGroupDelivery
