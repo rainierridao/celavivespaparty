@@ -95,6 +95,7 @@ const celaviveSurveyActivityOptions = [
   'Entrepreneurship Talks',
   'Bring a guest in Celavive Parties'
 ];
+const celaviveRatingOptions = Array.from({ length: 10 }, (_, index) => String(index + 1));
 
 const state = {
   activeApiBase: apiBaseCandidates[0],
@@ -2398,11 +2399,35 @@ function attachCelaviveSurveyHandlers(eventData) {
     return;
   }
 
+  const activityInputs = Array.from(form.querySelectorAll('input[name="futureActivities"]'));
+  const activityWillingnessFields = document.getElementById('activityWillingnessFields');
+  const renderActivityWillingnessFields = () => {
+    const selectedActivities = activityInputs.filter((input) => input.checked).map((input) => input.value);
+    activityWillingnessFields.innerHTML = selectedActivities.map((activity, index) => `
+      <div class="field">
+        <label for="activityWillingness-${index}">How willing are you to join ${escapeHtml(activity)}? <span class="required">*</span></label>
+        <div class="celavive-rating-slider">
+          <input id="activityWillingness-${index}" name="activityWillingness-${escapeAttribute(activity)}" type="range" min="1" max="10" value="5" step="1" aria-label="Willingness to join ${escapeAttribute(activity)}">
+          <output for="activityWillingness-${index}" data-rating-output>5</output>
+        </div>
+      </div>
+    `).join('');
+  };
+  activityInputs.forEach((input) => input.addEventListener('change', renderActivityWillingnessFields));
+  form.addEventListener('input', (event) => {
+    if (event.target.matches('input[type="range"]')) {
+      event.target.parentElement.querySelector('[data-rating-output]').value = event.target.value;
+    }
+  });
+
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
     const status = document.getElementById('publicFormStatus');
     const submitButton = form.querySelector('button[type="submit"]');
     const futureActivities = Array.from(form.querySelectorAll('input[name="futureActivities"]:checked')).map((input) => input.value);
+    const activityWillingness = Object.fromEntries(
+      futureActivities.map((activity) => [activity, form.elements[`activityWillingness-${activity}`]?.value || ''])
+    );
 
     if (!futureActivities.length) {
       setStatus(status, 'Choose at least one future activity.', 'is-error');
@@ -2421,6 +2446,8 @@ function attachCelaviveSurveyHandlers(eventData) {
           emailAddress: form.emailAddress.value,
           profession: form.profession.value,
           invitedBy: form.invitedBy.value,
+          partyRating: form.partyRating.value,
+          activityWillingness,
           futureActivities
         }
       });
@@ -5187,13 +5214,29 @@ function renderCelaviveSurveyFields() {
       </div>
     </div>
     <div class="celavive-questionnaire">
+      ${renderCelaviveRatingSlider('partyRating', 'How would you rate the Celavive Spa Party?', 1)}
       ${renderCelaviveQuestion({
         name: 'futureActivities',
         label: 'Which future activities are you willing to attend?',
         type: 'checkbox',
         options: celaviveSurveyActivityOptions
       }, 0)}
+      <div id="activityWillingnessFields" class="celavive-questionnaire-followup" aria-live="polite"></div>
     </div>
+  `;
+}
+
+function renderCelaviveRatingSlider(name, label, index) {
+  return `
+    <fieldset class="celavive-question">
+      <legend>${index}. ${escapeHtml(label)} <span class="required">*</span></legend>
+      <div class="celavive-rating-slider">
+        <span class="celavive-rating-endpoint">1</span>
+        <input id="${escapeAttribute(name)}" name="${escapeAttribute(name)}" type="range" min="1" max="10" value="5" step="1" aria-label="${escapeAttribute(label)}">
+        <span class="celavive-rating-endpoint">10</span>
+        <output for="${escapeAttribute(name)}" data-rating-output>5</output>
+      </div>
+    </fieldset>
   `;
 }
 

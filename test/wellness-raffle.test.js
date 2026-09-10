@@ -152,12 +152,16 @@ test('normalizes valid Celavive activity survey payloads', () => {
     emailAddress: ' JANE@EXAMPLE.COM ',
     profession: 'Teacher',
     invitedBy: 'Host Name',
+    partyRating: '9',
+    activityWillingness: { Yoga: '8', 'Zumba Nights': '7' },
     futureActivities: ['Yoga', 'Yoga', 'Zumba Nights']
   });
 
   assert.equal(payload.fullName, 'Jane Guest');
   assert.equal(payload.mobileNumber, '09171234567');
   assert.equal(payload.emailAddress, 'jane@example.com');
+  assert.equal(payload.partyRating, 9);
+  assert.deepEqual(payload.activityWillingness, { Yoga: 8, 'Zumba Nights': 7 });
   assert.deepEqual(payload.futureActivities, ['Yoga', 'Zumba Nights']);
 });
 
@@ -168,6 +172,8 @@ test('rejects invalid Celavive activity survey payloads', () => {
     emailAddress: 'jane@example.com',
     profession: 'Teacher',
     invitedBy: 'Host Name',
+    partyRating: '9',
+    activityWillingness: { Yoga: '8' },
     futureActivities: ['Yoga']
   };
 
@@ -177,6 +183,8 @@ test('rejects invalid Celavive activity survey payloads', () => {
   assert.throws(() => __test.normalizeCelaviveSurveyPayload({ ...validPayload, invitedBy: '' }), /Invited by/);
   assert.throws(() => __test.normalizeCelaviveSurveyPayload({ ...validPayload, futureActivities: [] }), /future activity/);
   assert.throws(() => __test.normalizeCelaviveSurveyPayload({ ...validPayload, futureActivities: ['Skydiving'] }), /valid Celavive questionnaire options/);
+  assert.throws(() => __test.normalizeCelaviveSurveyPayload({ ...validPayload, partyRating: '11' }), /Celavive Spa Party rating/);
+  assert.throws(() => __test.normalizeCelaviveSurveyPayload({ ...validPayload, activityWillingness: {} }), /willingness to join Yoga/);
 });
 
 test('decorates only Celavive spa party events with survey paths', () => {

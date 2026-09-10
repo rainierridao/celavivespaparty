@@ -3428,6 +3428,40 @@ textarea {
   line-height: 1.3;
 }
 
+.celavive-rating-slider {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  color: #3c3152;
+}
+
+.celavive-rating-slider input[type="range"] {
+  width: 100%;
+  min-height: 24px;
+  margin: 0;
+  padding: 0;
+  accent-color: #b95a98;
+  cursor: pointer;
+}
+
+.celavive-rating-slider output {
+  grid-column: 1 / -1;
+  justify-self: center;
+  min-width: 42px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: rgba(185, 90, 152, 0.12);
+  color: #8e3d76;
+  font-weight: 800;
+  text-align: center;
+}
+
+.celavive-rating-endpoint {
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
 .public-page button,
 .public-page .button-link {
   background: linear-gradient(135deg, #d768af 0%, #b15bd0 45%, #8464e8 100%);
