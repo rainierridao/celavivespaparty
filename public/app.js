@@ -2088,6 +2088,20 @@ function attachRsvpHandlers(eventData) {
     return;
   }
 
+  const threadsToggle = form.querySelector('#hasThreadsName');
+  const threadsField = form.querySelector('#threadsNameField');
+  const threadsInput = form.querySelector('#threadsName');
+  const syncThreadsField = () => {
+    const showThreadsField = Boolean(threadsToggle && threadsToggle.checked);
+    if (threadsField) threadsField.hidden = !showThreadsField;
+    if (threadsInput) threadsInput.required = showThreadsField;
+  };
+
+  if (threadsToggle) {
+    threadsToggle.addEventListener('change', syncThreadsField);
+    syncThreadsField();
+  }
+
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
     const status = document.getElementById('publicFormStatus');
@@ -2106,11 +2120,13 @@ function attachRsvpHandlers(eventData) {
           profession: form.profession.value,
           invitedBy: form.invitedBy.value,
           attendanceConfirmation: form.attendanceConfirmation.value,
+          threadsName: form.threadsName ? form.threadsName.value : '',
           slotId: form.slotId ? form.slotId.value : ''
         }
       });
 
       form.reset();
+  syncThreadsField();
       setStatus(status, result.message, 'is-success');
     } catch (error) {
       setStatus(status, error.message, 'is-error');
@@ -5410,6 +5426,14 @@ function renderRsvpFields(eventData = {}) {
           <option value="Yes, I will be attending">Yes, I will be attending</option>
           <option value="No, I cannot attend">No, I cannot attend</option>
         </select>
+      </div>
+      <label class="rsvp-threads-toggle" for="hasThreadsName">
+        <input id="hasThreadsName" name="hasThreadsName" type="checkbox">
+        <span>I have a Threads account</span>
+      </label>
+      <div id="threadsNameField" class="field full" hidden>
+        <label for="threadsName">Name on Threads <span class="required">*</span></label>
+        <input id="threadsName" name="threadsName" type="text" autocomplete="username" placeholder="Enter your Threads name">
       </div>
     </div>
   `;

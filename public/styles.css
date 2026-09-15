@@ -2821,6 +2821,20 @@ textarea {
   color: #243049;
 }
 
+.rsvp-threads-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  grid-column: 1 / -1;
+  cursor: pointer;
+}
+
+.rsvp-threads-toggle input {
+  width: 18px;
+  min-height: 18px;
+  accent-color: var(--accent);
+}
+
 .create-event-form label {
   margin-bottom: 0;
   line-height: 1.2;
