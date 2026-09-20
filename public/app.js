@@ -2966,8 +2966,15 @@ function attachResponseDeleteHandlers(eventData, mode) {
         );
         // Marking paid can succeed while the email does not; the server says which.
         const tone = result.tone === 'error' ? 'is-error' : result.tone === 'warning' ? 'is-warning' : 'is-success';
-        setStatus(status, result.message, tone);
+        // renderRoute rebuilds the page, so the message has to be written to the
+        // status element that exists AFTER the redraw, not the one before it.
         await renderRoute();
+        const refreshedStatus = document.getElementById('responseActionStatus');
+        setStatus(refreshedStatus, result.message, tone);
+
+        if (refreshedStatus) {
+          refreshedStatus.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
       } catch (error) {
         setStatus(status, error.message, 'is-error');
         setButtonLoading(button, false, shouldMarkPaid ? 'Mark Paid' : 'Mark Unpaid');
