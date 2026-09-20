@@ -3986,6 +3986,19 @@ function syncSpecialFormDraftFromDom(root) {
     if (isSpecialFormChoiceType(field.type)) {
       field.options = Array.from(blockEl.querySelectorAll('[data-block-option]')).map((input) => input.value);
     }
+
+    const conditionToggle = blockEl.querySelector('[data-condition-enabled]');
+
+    if (conditionToggle) {
+      const sourceSelect = blockEl.querySelector('[data-condition-source]');
+      const values = Array.from(blockEl.querySelectorAll('[data-condition-value]:checked')).map(
+        (input) => input.value
+      );
+
+      field.showIf = conditionToggle.checked && sourceSelect && sourceSelect.value
+        ? { fieldId: sourceSelect.value, values }
+        : null;
+    }
   });
 
   return draft;
@@ -4030,6 +4043,10 @@ function buildSpecialFormPayload(root) {
         if (isSpecialFormChoiceType(field.type)) {
           payload.options = (field.options || []).map((option) => option.trim()).filter(Boolean);
           payload.allowOther = Boolean(field.allowOther);
+        }
+
+        if (field.showIf && field.showIf.fieldId && (field.showIf.values || []).length) {
+          payload.showIf = { fieldId: field.showIf.fieldId, values: field.showIf.values.slice() };
         }
 
         if (field.type === 'rating') {
@@ -4332,7 +4349,9 @@ function renderSpecialFormBlockList() {
     `;
   }
 
-  return draft.fields.map((field, index) => renderSpecialFormBlock(field, index, draft.fields.length)).join('');
+  return draft.fields
+    .map((field, index) => renderSpecialFormBlock(field, index, draft.fields.length))
+    .join('');
 }
 
 function renderSpecialFormBlock(field, index, total) {
@@ -4438,7 +4457,75 @@ function renderSpecialFormBlock(field, index, total) {
             </label>
           `
       }
+
+      ${renderSpecialFormConditionEditor(field, index)}
     </article>
+  `;
+}
+
+// Only choice questions that appear BEFORE this block can drive it, otherwise the
+// answer would not exist yet when the rule is evaluated.
+function getSpecialFormConditionSources(index) {
+  return getSpecialFormDraft()
+    .fields.slice(0, index)
+    .filter((field) => isSpecialFormChoiceType(field.type) && (field.options || []).length);
+}
+
+function renderSpecialFormConditionEditor(field, index) {
+  const sources = getSpecialFormConditionSources(index);
+
+  if (!sources.length) {
+    return '';
+  }
+
+  const rule = field.showIf || null;
+  const parent = rule ? sources.find((item) => item.fieldId === rule.fieldId) : null;
+  const isOn = Boolean(parent);
+
+  return `
+    <div class="special-condition" data-special-condition>
+      <label class="special-inline-toggle">
+        <input type="checkbox" data-condition-enabled ${isOn ? 'checked' : ''}>
+        <span>Only show this after a certain answer</span>
+      </label>
+
+      <div class="special-condition-fields" data-condition-fields ${isOn ? '' : 'hidden'}>
+        <div class="field full">
+          <label>Show when this question</label>
+          <select data-condition-source>
+            ${sources
+              .map(
+                (source) => `
+                  <option value="${escapeAttribute(source.fieldId)}" ${parent && parent.fieldId === source.fieldId ? 'selected' : ''}>
+                    ${escapeHtml(source.label || 'Untitled question')}
+                  </option>
+                `
+              )
+              .join('')}
+          </select>
+        </div>
+        <div class="field full">
+          <span class="field-label">is answered</span>
+          <div class="special-condition-values">
+            ${((parent || sources[0]).options || [])
+              .map(
+                (option) => `
+                  <label class="special-inline-toggle">
+                    <input
+                      type="checkbox"
+                      data-condition-value
+                      value="${escapeAttribute(option)}"
+                      ${rule && rule.values.includes(option) ? 'checked' : ''}
+                    >
+                    <span>${escapeHtml(option)}</span>
+                  </label>
+                `
+              )
+              .join('')}
+          </div>
+        </div>
+      </div>
+    </div>
   `;
 }
 
@@ -4731,12 +4818,55 @@ function attachSpecialFormBuilder(root, { onStatus } = {}) {
       return;
     }
 
+    if (event.target.closest('[data-condition-enabled]')) {
+      syncSpecialFormDraftFromDom(root);
+      const field = draft.fields[fieldIndex];
+
+      if (field.showIf && !field.showIf.values.length) {
+        // Default to the first answer so the rule is usable straight away.
+        const sources = getSpecialFormConditionSources(fieldIndex);
+        const parent = sources.find((item) => item.fieldId === field.showIf.fieldId) || sources[0];
+
+        if (parent) {
+          field.showIf = { fieldId: parent.fieldId, values: [(parent.options || [])[0]].filter(Boolean) };
+        }
+      }
+
+      refreshSpecialFormBlocks(root);
+      return;
+    }
+
     if (event.target.closest('[data-upload-special-image]') && imageInput) {
       syncSpecialFormDraftFromDom(root);
       pendingImageFieldId = fieldId;
       imageInput.value = '';
       imageInput.click();
     }
+  });
+
+  // Changing the driving question must reload its answer list.
+  root.addEventListener('change', (event) => {
+    const sourceSelect = event.target.closest('[data-condition-source]');
+
+    if (!sourceSelect) {
+      return;
+    }
+
+    const blockEl = sourceSelect.closest('[data-special-block]');
+    const draft = getSpecialFormDraft();
+    const fieldIndex = draft.fields.findIndex((item) => item.fieldId === blockEl.dataset.specialBlock);
+
+    if (fieldIndex < 0) {
+      return;
+    }
+
+    syncSpecialFormDraftFromDom(root);
+    const parent = draft.fields.find((item) => item.fieldId === sourceSelect.value);
+    draft.fields[fieldIndex].showIf = {
+      fieldId: sourceSelect.value,
+      values: [(parent && parent.options ? parent.options[0] : '')].filter(Boolean)
+    };
+    refreshSpecialFormBlocks(root);
   });
 
   if (imageInput) {
@@ -6342,6 +6472,9 @@ function renderPublicSpecialEventPage(eventData, images = {}) {
 
 function renderSpecialFormPublicField(field, images = {}) {
   const fieldId = `special_${field.fieldId}`;
+  const conditionAttrs = field.showIf && field.showIf.fieldId
+    ? ` data-show-if="${escapeAttribute(field.showIf.fieldId)}" data-show-if-values="${escapeAttribute(JSON.stringify(field.showIf.values || []))}" hidden`
+    : '';
   const required = field.required ? ' required' : '';
   const requiredMark = field.required ? ' <span class="required">*</span>' : '';
   const help = field.help
@@ -6350,7 +6483,7 @@ function renderSpecialFormPublicField(field, images = {}) {
 
   if (field.type === 'heading') {
     return `
-      <div class="special-public-heading">
+      <div class="special-public-heading" data-special-field="${escapeAttribute(field.fieldId)}" data-special-type="heading"${conditionAttrs}>
         <h3>${escapeHtml(field.label)}</h3>
         ${field.help ? `<p>${escapeHtml(field.help)}</p>` : ''}
       </div>
@@ -6365,7 +6498,7 @@ function renderSpecialFormPublicField(field, images = {}) {
     }
 
     return `
-      <figure class="special-public-image">
+      <figure class="special-public-image" data-special-field="${escapeAttribute(field.fieldId)}" data-special-type="image"${conditionAttrs}>
         <img src="${escapeAttribute(src)}" alt="${escapeAttribute(field.label || 'Event image')}" loading="lazy">
         ${field.label ? `<figcaption>${escapeHtml(field.label)}</figcaption>` : ''}
       </figure>
@@ -6376,7 +6509,7 @@ function renderSpecialFormPublicField(field, images = {}) {
 
   if (field.type === 'paragraph') {
     return `
-      <div class="field full" data-special-field="${escapeAttribute(field.fieldId)}" data-special-type="paragraph">
+      <div class="field full" data-special-field="${escapeAttribute(field.fieldId)}" data-special-type="paragraph"${conditionAttrs}>
         ${labelHtml}
         <textarea id="${escapeAttribute(fieldId)}" name="${escapeAttribute(fieldId)}" maxlength="4000"${required}></textarea>
         ${help}
@@ -6386,7 +6519,7 @@ function renderSpecialFormPublicField(field, images = {}) {
 
   if (field.type === 'dropdown') {
     return `
-      <div class="field full" data-special-field="${escapeAttribute(field.fieldId)}" data-special-type="dropdown">
+      <div class="field full" data-special-field="${escapeAttribute(field.fieldId)}" data-special-type="dropdown"${conditionAttrs}>
         ${labelHtml}
         <select id="${escapeAttribute(fieldId)}" name="${escapeAttribute(fieldId)}"${required}>
           <option value="">Select an option</option>
@@ -6401,7 +6534,7 @@ function renderSpecialFormPublicField(field, images = {}) {
     const inputType = field.type === 'checkbox' ? 'checkbox' : 'radio';
 
     return `
-      <div class="field full" data-special-field="${escapeAttribute(field.fieldId)}" data-special-type="${escapeAttribute(field.type)}">
+      <div class="field full" data-special-field="${escapeAttribute(field.fieldId)}" data-special-type="${escapeAttribute(field.type)}"${conditionAttrs}>
         <span class="field-label">${escapeHtml(field.label)}${requiredMark}</span>
         ${help}
         <div class="special-public-choices">
@@ -6435,7 +6568,7 @@ function renderSpecialFormPublicField(field, images = {}) {
 
   if (field.type === 'photo-upload') {
     return `
-      <div class="field full" data-special-field="${escapeAttribute(field.fieldId)}" data-special-type="photo-upload">
+      <div class="field full" data-special-field="${escapeAttribute(field.fieldId)}" data-special-type="photo-upload"${conditionAttrs}>
         <span class="field-label">${escapeHtml(field.label)}${requiredMark}</span>
         ${help}
         <div class="special-photo-upload">
@@ -6463,7 +6596,7 @@ function renderSpecialFormPublicField(field, images = {}) {
     const max = Number(field.ratingMax) || 10;
 
     return `
-      <div class="field full" data-special-field="${escapeAttribute(field.fieldId)}" data-special-type="rating">
+      <div class="field full" data-special-field="${escapeAttribute(field.fieldId)}" data-special-type="rating"${conditionAttrs}>
         <span class="field-label">${escapeHtml(field.label)}${requiredMark}</span>
         ${help}
         <div class="special-public-rating">
@@ -6491,7 +6624,7 @@ function renderSpecialFormPublicField(field, images = {}) {
             : 'text';
 
   return `
-    <div class="field full" data-special-field="${escapeAttribute(field.fieldId)}" data-special-type="${escapeAttribute(field.type)}">
+    <div class="field full" data-special-field="${escapeAttribute(field.fieldId)}" data-special-type="${escapeAttribute(field.type)}"${conditionAttrs}>
       ${labelHtml}
       <input
         id="${escapeAttribute(fieldId)}"
@@ -6518,7 +6651,7 @@ function collectSpecialFormAnswers(form, eventData) {
 
     const wrapper = form.querySelector(`[data-special-field="${field.fieldId}"]`);
 
-    if (!wrapper) {
+    if (!wrapper || wrapper.hidden) {
       continue;
     }
 
@@ -6713,6 +6846,94 @@ function attachSpecialPaymentHandlers(eventData, payment) {
   });
 }
 
+// Mirrors evaluateSpecialFormVisibility on the server: a block shows only when
+// its rule matches and the question it depends on is itself showing.
+function applySpecialFormConditions(form, eventData) {
+  const fields = (eventData.specialForm && eventData.specialForm.fields) || [];
+  const visible = new Set();
+
+  for (const field of fields) {
+    const wrapper = form.querySelector(`[data-special-field="${field.fieldId}"]`);
+    const rule = field.showIf;
+
+    if (!rule || !rule.fieldId) {
+      visible.add(field.fieldId);
+      continue;
+    }
+
+    let isVisible = false;
+
+    if (visible.has(rule.fieldId)) {
+      const parentWrapper = form.querySelector(`[data-special-field="${rule.fieldId}"]`);
+      const selected = parentWrapper
+        ? Array.from(parentWrapper.querySelectorAll('[data-special-choice]:checked')).map((i) => i.value)
+        : [];
+      const dropdown = parentWrapper ? parentWrapper.querySelector('select') : null;
+
+      if (dropdown && dropdown.value) {
+        selected.push(dropdown.value);
+      }
+
+      isVisible = selected.some((value) => (rule.values || []).includes(value));
+    }
+
+    if (isVisible) {
+      visible.add(field.fieldId);
+    }
+
+    if (wrapper && wrapper.hidden === isVisible) {
+      wrapper.hidden = !isVisible;
+
+      if (!isVisible) {
+        clearSpecialFormField(wrapper, field);
+      } else {
+        wrapper.classList.add('is-revealed');
+        window.setTimeout(() => wrapper.classList.remove('is-revealed'), 420);
+      }
+    }
+  }
+
+  return visible;
+}
+
+// A block that disappears must not keep a stale answer behind it.
+function clearSpecialFormField(wrapper, field) {
+  wrapper.querySelectorAll('input, textarea, select').forEach((input) => {
+    if (input.type === 'checkbox' || input.type === 'radio') {
+      input.checked = false;
+    } else if (input.type !== 'file') {
+      input.value = '';
+    }
+  });
+
+  if (field.type === 'photo-upload') {
+    delete state.specialPhotoUploads[field.fieldId];
+    const preview = wrapper.querySelector('[data-special-photo-preview]');
+    const note = wrapper.querySelector('[data-special-photo-status]');
+
+    if (preview) {
+      preview.hidden = true;
+    }
+
+    if (note) {
+      note.textContent = '';
+    }
+  }
+}
+
+function attachSpecialFormConditions(form, eventData) {
+  const hasConditions = ((eventData.specialForm && eventData.specialForm.fields) || []).some(
+    (field) => field.showIf && field.showIf.fieldId
+  );
+
+  if (!hasConditions) {
+    return;
+  }
+
+  form.addEventListener('change', () => applySpecialFormConditions(form, eventData));
+  applySpecialFormConditions(form, eventData);
+}
+
 function attachSpecialPhotoInputs(form) {
   form.querySelectorAll('[data-special-field][data-special-type="photo-upload"]').forEach((wrapper) => {
     const fieldId = wrapper.dataset.specialField;
@@ -6798,6 +7019,7 @@ function attachSpecialEventFormHandlers(eventData) {
   }
 
   attachSpecialPhotoInputs(form);
+  attachSpecialFormConditions(form, eventData);
 
   // Typing in an "Other" box should select it, the same way tapping the option does.
   form.querySelectorAll('[data-special-other-input]').forEach((otherInput) => {

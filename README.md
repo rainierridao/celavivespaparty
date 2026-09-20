@@ -84,6 +84,20 @@ Available blocks:
 You can also upload a **header photo** in the form builder to replace the default
 GeneSys photos at the top of your public form.
 
+### Follow-up questions
+
+Any block can be set to appear only after a particular answer. In the builder, tick
+**Only show this after a certain answer**, pick an earlier multiple choice, checkbox,
+dropdown, or poll question, and tick which answers reveal it.
+
+Example: *"Are you bringing a guest?"* → Yes reveals *"Guest name"*.
+
+A follow-up starts hidden and slides in when the answer matches. If the answer
+changes, it hides again and its answer is cleared, so a stale reply is never saved.
+A follow-up marked required only blocks submission while it is actually showing, and
+this is enforced on the server too, not just in the browser. Follow-ups can be
+chained: if the first link stops matching, everything below it disappears with it.
+
 Multiple choice and checkbox blocks can offer an "Other" box. Every question can be
 marked required.
 

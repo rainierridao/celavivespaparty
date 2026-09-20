@@ -212,3 +212,112 @@ test('an optional photo question may be left empty', () => {
   assert.equal(result.answers.Receipt, '');
   assert.equal(result.photos.length, 0);
 });
+
+const { evaluateSpecialFormVisibility } = __test;
+
+function conditionalForm() {
+  return normalizeSpecialFormDefinition({
+    fields: [
+      { fieldId: 'q1', type: 'multiple-choice', label: 'Are you bringing a guest?', options: ['Yes', 'No'], required: true },
+      { fieldId: 'q2', type: 'short-text', label: 'Guest name', required: true, showIf: { fieldId: 'q1', values: ['Yes'] } },
+      { fieldId: 'q3', type: 'dropdown', label: 'Guest meal', options: ['Chicken', 'Fish'], showIf: { fieldId: 'q1', values: ['Yes'] } }
+    ]
+  });
+}
+
+test('a follow-up question only appears for the answers that trigger it', () => {
+  const form = conditionalForm();
+
+  assert.deepEqual(form.fields[1].showIf, { fieldId: 'q1', values: ['Yes'] });
+
+  const shown = evaluateSpecialFormVisibility(form, { q1: 'Yes' });
+  assert.ok(shown.has('q2') && shown.has('q3'));
+
+  const hidden = evaluateSpecialFormVisibility(form, { q1: 'No' });
+  assert.ok(hidden.has('q1'));
+  assert.ok(!hidden.has('q2') && !hidden.has('q3'));
+
+  // No answer yet means the follow-up stays hidden.
+  assert.ok(!evaluateSpecialFormVisibility(form, {}).has('q2'));
+});
+
+test('a hidden follow-up is neither required nor recorded', () => {
+  const form = conditionalForm();
+  const event = { eventType: 'Special Event', specialForm: form };
+
+  // "Guest name" is required, but answering No must not block submission.
+  const no = normalizeSpecialFormSubmission({ answers: { q1: 'No' } }, event);
+  assert.equal(no.answers['Are you bringing a guest?'], 'No');
+  assert.equal(no.answers['Guest name'], '');
+
+  // A stale answer posted for a hidden block is discarded, not saved.
+  const stale = normalizeSpecialFormSubmission(
+    { answers: { q1: 'No', q2: 'Should not be kept', q3: 'Fish' } },
+    event
+  );
+  assert.equal(stale.answers['Guest name'], '');
+  assert.equal(stale.answers['Guest meal'], '');
+
+  // Answering Yes makes it required again.
+  assert.throws(
+    () => normalizeSpecialFormSubmission({ answers: { q1: 'Yes' } }, event),
+    /"Guest name" is required/
+  );
+
+  const yes = normalizeSpecialFormSubmission({ answers: { q1: 'Yes', q2: 'Ana Cruz', q3: 'Fish' } }, event);
+  assert.equal(yes.answers['Guest name'], 'Ana Cruz');
+  assert.equal(yes.answers['Guest meal'], 'Fish');
+});
+
+test('a chain of follow-ups collapses when the first link stops matching', () => {
+  const form = normalizeSpecialFormDefinition({
+    fields: [
+      { fieldId: 'a', type: 'multiple-choice', label: 'Attending?', options: ['Yes', 'No'] },
+      { fieldId: 'b', type: 'multiple-choice', label: 'Bringing a guest?', options: ['Yes', 'No'], showIf: { fieldId: 'a', values: ['Yes'] } },
+      { fieldId: 'c', type: 'short-text', label: 'Guest name', showIf: { fieldId: 'b', values: ['Yes'] } }
+    ]
+  });
+
+  assert.ok(evaluateSpecialFormVisibility(form, { a: 'Yes', b: 'Yes' }).has('c'));
+  // b answered Yes but a says No, so b is hidden and c must go with it.
+  assert.ok(!evaluateSpecialFormVisibility(form, { a: 'No', b: 'Yes' }).has('c'));
+});
+
+test('a checkbox question triggers on any matching selection', () => {
+  const form = normalizeSpecialFormDefinition({
+    fields: [
+      { fieldId: 'topics', type: 'checkbox', label: 'Topics', options: ['Business', 'Wellness'] },
+      { fieldId: 'detail', type: 'short-text', label: 'Which business topic?', showIf: { fieldId: 'topics', values: ['Business'] } }
+    ]
+  });
+
+  assert.ok(evaluateSpecialFormVisibility(form, { topics: ['Business', 'Wellness'] }).has('detail'));
+  assert.ok(!evaluateSpecialFormVisibility(form, { topics: ['Wellness'] }).has('detail'));
+});
+
+test('rejects rules that could never be answered', () => {
+  const build = (fields) => normalizeSpecialFormDefinition({ fields });
+
+  // Points at a later question.
+  assert.throws(() => build([
+    { fieldId: 'x', type: 'short-text', label: 'Name', showIf: { fieldId: 'y', values: ['Yes'] } },
+    { fieldId: 'y', type: 'multiple-choice', label: 'Going?', options: ['Yes', 'No'] }
+  ]), /comes before it/);
+
+  // Points at itself.
+  assert.throws(() => build([
+    { fieldId: 'z', type: 'multiple-choice', label: 'Going?', options: ['Yes', 'No'], showIf: { fieldId: 'z', values: ['Yes'] } }
+  ]), /comes before it/);
+
+  // Points at a question with no fixed answers.
+  assert.throws(() => build([
+    { fieldId: 'n', type: 'short-text', label: 'Name' },
+    { fieldId: 'm', type: 'short-text', label: 'More', showIf: { fieldId: 'n', values: ['Yes'] } }
+  ]), /multiple choice, checkbox, dropdown, or poll/);
+
+  // Points at an answer that no longer exists.
+  assert.throws(() => build([
+    { fieldId: 'p', type: 'multiple-choice', label: 'Going?', options: ['Yes', 'No'] },
+    { fieldId: 'q', type: 'short-text', label: 'Detail', showIf: { fieldId: 'p', values: ['Maybe'] } }
+  ]), /no longer offers/);
+});
