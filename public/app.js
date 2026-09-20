@@ -10,7 +10,39 @@ const GROUP_DELIVERY_EVENT_TYPE = 'Group Delivery';
 const CELAVIVE_SPA_PARTY_EVENT_TYPE = 'Celavive Spa Party';
 const WELLNESS_WEDNESDAY_EVENT_TYPE = 'Wellness Wednesday';
 // Standard RSVP + attendance events: same public pages and "view" responses link
+const SPECIAL_EVENT_TYPE = 'Special Event';
 const STANDARD_RSVP_EVENT_TYPES = [CELAVIVE_SPA_PARTY_EVENT_TYPE, WELLNESS_WEDNESDAY_EVENT_TYPE];
+const SPECIAL_FORM_BLOCKS = [
+  { type: 'short-text', label: 'Short answer', hint: 'One line of text' },
+  { type: 'paragraph', label: 'Paragraph', hint: 'Long text answer' },
+  { type: 'multiple-choice', label: 'Multiple choice', hint: 'Pick one option' },
+  { type: 'checkbox', label: 'Checkboxes', hint: 'Pick as many as they want' },
+  { type: 'dropdown', label: 'Dropdown', hint: 'Pick one from a list' },
+  { type: 'poll', label: 'Poll', hint: 'A single-choice vote' },
+  { type: 'rating', label: 'Rating scale', hint: 'Score from 1 to 10' },
+  { type: 'photo-upload', label: 'Photo upload', hint: 'The respondent attaches a photo' },
+  { type: 'email', label: 'Email', hint: 'Validated email address' },
+  { type: 'phone', label: 'Mobile number', hint: 'Phone keypad on mobile' },
+  { type: 'number', label: 'Number', hint: 'Numeric answer' },
+  { type: 'date', label: 'Date', hint: 'Date picker' },
+  { type: 'time', label: 'Time', hint: 'Time picker' },
+  { type: 'heading', label: 'Section heading', hint: 'Text only, no answer' },
+  { type: 'image', label: 'Image (display)', hint: 'A picture you show on the form' }
+];
+const SPECIAL_FORM_CHOICE_TYPES = ['multiple-choice', 'checkbox', 'dropdown', 'poll'];
+const SPECIAL_FORM_DISPLAY_TYPES = ['heading', 'image'];
+const SPECIAL_FORM_MAX_IMAGE_DIMENSION = 1400;
+const SPECIAL_FORM_MAX_IMAGE_CHARS = 600 * 1024;
+const SPECIAL_FORM_MAX_PHOTO_CHARS = 900 * 1024;
+const SPECIAL_FORM_RESERVED_COLUMNS = [
+  '__rowNumber',
+  'Timestamp',
+  'Event ID',
+  'Event Type',
+  'Event Label',
+  'Location',
+  'Date Time'
+];
 const DEFAULT_WELLNESS_RAFFLE_WIN_CHANCE = 65;
 const GROUP_DELIVERY_SESSION_KEY = 'groupDeliverySession';
 const apiBaseCandidates =
@@ -105,7 +137,10 @@ const state = {
   publicSlideshowTimer: null,
   cachedEventCount: null,
   confirmDialog: null,
-  headerTitleResizeHandler: null
+  headerTitleResizeHandler: null,
+  specialForm: null,
+  specialPhotoUploads: {},
+  specialPhotoEventId: ''
 };
 
 document.addEventListener('click', handleGlobalClick);
@@ -300,11 +335,21 @@ async function renderRoute() {
 
     try {
       const eventId = eventDetailMatch[1];
-      const [eventResult, rsvpResult, attendanceResult] = await Promise.all([
-        fetchJson(`/events/${eventId}`),
-        fetchJson(`/events/${eventId}/rsvp-responses`),
-        fetchJson(`/events/${eventId}/attendance-responses`)
-      ]);
+      const eventResult = await fetchJson(`/events/${eventId}`);
+      const isSpecial = isSpecialEvent(eventResult.event);
+      state.specialPhotoEventId = isSpecial ? eventResult.event.eventId : '';
+      const [rsvpResult, attendanceResult] = isSpecial
+        ? [{ responses: [] }, { responses: [] }]
+        : await Promise.all([
+          fetchJson(`/events/${eventId}/rsvp-responses`),
+          fetchJson(`/events/${eventId}/attendance-responses`)
+        ]);
+      const specialFormResult = isSpecial
+        ? await fetchJson(`/events/${eventId}/special-form-responses`)
+        : { responses: [] };
+      const specialFormImagesResult = isSpecial
+        ? await fetchJson(`/events/${eventId}/special-form-images`)
+        : { images: {} };
       const inBodyResult = isInBodyEvent(eventResult.event)
         ? await fetchJson(`/events/${eventId}/inbody-responses`)
         : { responses: [] };
@@ -332,7 +377,9 @@ async function renderRoute() {
         wellnessQuizResponses: wellnessQuizResult.responses || [],
         groupDeliveryUsers: groupDeliveryUsersResult.users || [],
         groupDeliveryCycles: groupDeliveryCyclesResult.cycles || [],
-        groupDeliveryCurrentCycle: groupDeliveryCyclesResult.currentCycle || null
+        groupDeliveryCurrentCycle: groupDeliveryCyclesResult.currentCycle || null,
+        specialFormResponses: specialFormResult.responses || [],
+        specialFormImages: specialFormImagesResult.images || {}
       }));
       attachAdminShellHandlers();
       attachEventDetailHandlers(eventResult.event);
@@ -447,6 +494,41 @@ async function renderRoute() {
       attachResponseDeleteHandlers(result.event, 'wellness-quiz');
     } catch (error) {
       renderPage(renderErrorPage('Unable to load Wellness Quiz responses.', error.message));
+    }
+
+    return;
+  }
+
+  const specialFormResponseMatch = pathname.match(/^\/events\/([^/]+)\/special-form-responses$/);
+
+  if (specialFormResponseMatch) {
+    if (!(await guardAuthenticated())) {
+      return;
+    }
+
+    renderLoading('Loading form responses...', {
+      admin: {
+        activeView: 'dashboard',
+        title: 'Loading form responses',
+        subtitle: 'Preparing submissions from your custom event form.',
+        badge: 'Responses'
+      }
+    });
+    attachAdminShellHandlers();
+
+    try {
+      const result = await fetchJson(`/events/${specialFormResponseMatch[1]}/special-form-responses`);
+      state.specialPhotoEventId = result.event.eventId;
+      renderPage(renderResponsesPage(
+        `${getSpecialEventTitle(result.event)} Responses`,
+        result.event,
+        result.responses,
+        'special-form'
+      ));
+      attachAdminShellHandlers();
+      attachResponseDeleteHandlers(result.event, 'special-form');
+    } catch (error) {
+      renderPage(renderErrorPage('Unable to load form responses.', error.message));
     }
 
     return;
@@ -652,6 +734,24 @@ async function renderRoute() {
     return;
   }
 
+  const specialEventMatch = pathname.match(/^\/special-event\/([^/]+)$/);
+
+  if (specialEventMatch) {
+    renderLoading('Loading form...');
+
+    try {
+      const result = await fetchJson(`/public-special-events/${specialEventMatch[1]}`);
+      renderPage(renderPublicSpecialEventPage(result.event, result.images || {}));
+      attachPublicShowcase();
+      syncDynamicHeaderTitle();
+      attachSpecialEventFormHandlers(result.event);
+    } catch (error) {
+      renderPage(renderErrorPage('Unable to load that form.', error.message));
+    }
+
+    return;
+  }
+
   const groupDeliveryMatch = pathname.match(/^\/group-delivery\/([^/]+)$/);
 
   if (groupDeliveryMatch) {
@@ -700,6 +800,22 @@ function handleGlobalClick(event) {
   if (prospectScoreButton) {
     event.preventDefault();
     showProspectScoreInsight(prospectScoreButton);
+    return;
+  }
+
+  const specialPhotoButton = event.target.closest('[data-view-special-photo]');
+
+  if (specialPhotoButton) {
+    event.preventDefault();
+    void showSpecialPhoto(specialPhotoButton.dataset.viewSpecialPhoto);
+    return;
+  }
+
+  const specialPhotoClose = event.target.closest('[data-special-photo-close]');
+
+  if (specialPhotoClose) {
+    event.preventDefault();
+    closeSpecialPhotoModal();
     return;
   }
 
@@ -825,6 +941,10 @@ function handleGlobalKeydown(event) {
     }
 
     if (closeProspectScoreInsight()) {
+      return;
+    }
+
+    if (closeSpecialPhotoModal()) {
       return;
     }
 
@@ -957,6 +1077,88 @@ function closeProspectScoreInsight() {
   }, 180);
 
   return true;
+}
+
+// Photos are fetched one at a time so the response log never has to download
+// every submitted picture up front.
+async function showSpecialPhoto(photoId) {
+  const eventId = state.specialPhotoEventId;
+
+  if (!photoId || !eventId) {
+    return;
+  }
+
+  const modal = ensureSpecialPhotoModal();
+  const image = modal.querySelector('[data-special-photo-modal-image]');
+  const caption = modal.querySelector('[data-special-photo-modal-caption]');
+  const download = modal.querySelector('[data-special-photo-modal-download]');
+
+  image.removeAttribute('src');
+  caption.textContent = 'Loading photo...';
+  download.hidden = true;
+  modal.hidden = false;
+  window.requestAnimationFrame(() => modal.classList.add('is-open'));
+
+  try {
+    const result = await fetchJson(`/events/${eventId}/special-form-photos/${photoId}`);
+    image.src = result.photo.dataUrl;
+    caption.textContent = result.photo.fileName || result.photo.question || 'Submitted photo';
+    download.href = result.photo.dataUrl;
+    download.download = result.photo.fileName || `${photoId}.jpg`;
+    download.hidden = false;
+  } catch (error) {
+    caption.textContent = error.message || 'That photo could not be loaded.';
+  }
+}
+
+function closeSpecialPhotoModal() {
+  const modal = document.getElementById('specialPhotoModal');
+
+  if (!modal || modal.hidden) {
+    return false;
+  }
+
+  modal.classList.remove('is-open');
+
+  window.setTimeout(() => {
+    if (modal) {
+      modal.hidden = true;
+      const image = modal.querySelector('[data-special-photo-modal-image]');
+
+      if (image) {
+        image.removeAttribute('src');
+      }
+    }
+  }, 180);
+
+  return true;
+}
+
+function ensureSpecialPhotoModal() {
+  let modal = document.getElementById('specialPhotoModal');
+
+  if (modal) {
+    return modal;
+  }
+
+  modal = document.createElement('div');
+  modal.id = 'specialPhotoModal';
+  modal.className = 'prospect-insight-modal special-photo-modal';
+  modal.hidden = true;
+  modal.setAttribute('data-special-photo-close', '');
+  modal.innerHTML = `
+    <div class="prospect-insight-surface special-photo-surface" role="dialog" aria-modal="true" aria-label="Submitted photo">
+      <div class="prospect-insight-kicker">Submitted photo</div>
+      <img class="special-photo-modal-image" alt="Submitted photo" data-special-photo-modal-image>
+      <p data-special-photo-modal-caption></p>
+      <div class="special-photo-modal-actions">
+        <a class="button-link button-link-secondary" data-special-photo-modal-download hidden>Download</a>
+        <button type="button" class="button-link" data-special-photo-close>Close</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  return modal;
 }
 
 function ensureProspectScoreInsightModal() {
@@ -1217,12 +1419,19 @@ function attachCreateEventHandlers() {
   const beautyCaravanSetup = document.getElementById('beautyCaravanEventSetup');
   const wellnessQuizSetup = document.getElementById('wellnessQuizEventSetup');
   const wellnessQuizTitleInput = document.getElementById('wellnessQuizTitle');
+  const specialSetup = document.getElementById('specialEventSetup');
+  const specialBuilder = form.querySelector('[data-special-builder]');
 
   const syncInBodySetup = () => {
     const isInBody = eventTypeInput && isInBodyEvent({ eventType: eventTypeInput.value });
     const isBeautyCaravan = eventTypeInput && isBeautyCaravanEvent({ eventType: eventTypeInput.value });
     const isWellnessQuiz = eventTypeInput && isWellnessQuizEvent({ eventType: eventTypeInput.value });
+    const isSpecial = eventTypeInput && isSpecialEvent({ eventType: eventTypeInput.value });
     const isBooking = isInBody && inBodyModeInput && inBodyModeInput.value === 'booking';
+
+    if (specialSetup) {
+      specialSetup.hidden = !isSpecial;
+    }
 
     if (inBodySetup) {
       inBodySetup.hidden = !isInBody;
@@ -1303,6 +1512,10 @@ function attachCreateEventHandlers() {
     });
   }
 
+  attachSpecialFormBuilder(specialBuilder, {
+    onStatus: (message, className) => setStatus(document.getElementById('eventStatus'), message, className)
+  });
+
   syncInBodySetup();
 
   form.addEventListener('submit', async (event) => {
@@ -1333,6 +1546,17 @@ function attachCreateEventHandlers() {
 
     if (isWellnessQuiz) {
       body.wellnessQuizTitle = form.wellnessQuizTitle.value;
+    }
+
+    if (isSpecialEvent({ eventType: form.eventType.value })) {
+      const validationError = validateSpecialFormDraft(specialBuilder);
+
+      if (validationError) {
+        setStatus(status, validationError, 'is-error');
+        return;
+      }
+
+      Object.assign(body, buildSpecialFormPayload(specialBuilder));
     }
 
     setStatus(status, '', '');
@@ -1491,13 +1715,31 @@ function attachEventDetailHandlers(eventData) {
   const wellnessQuizQrOpenLink = document.getElementById('wellnessQuizQrOpenLink');
   const groupDeliveryQrImage = document.getElementById('groupDeliveryQrImage');
   const groupDeliveryQrOpenLink = document.getElementById('groupDeliveryQrOpenLink');
+  const specialFormQrImage = document.getElementById('specialFormQrImage');
+  const specialFormQrOpenLink = document.getElementById('specialFormQrOpenLink');
   const rsvpUrl = `${window.location.origin}${eventData.rsvpPath}`;
   const inBodyUrl = eventData.inBodyPath ? `${window.location.origin}${eventData.inBodyPath}` : '';
   const celaviveRaffleUrl = eventData.celaviveRafflePath ? `${window.location.origin}${eventData.celaviveRafflePath}` : '';
   const celaviveSurveyUrl = eventData.celaviveSurveyPath ? `${window.location.origin}${eventData.celaviveSurveyPath}` : '';
   const wellnessQuizUrl = eventData.wellnessQuizPath ? `${window.location.origin}${eventData.wellnessQuizPath}` : '';
   const groupDeliveryUrl = eventData.groupDeliveryPath ? `${window.location.origin}${eventData.groupDeliveryPath}` : '';
+  const specialFormUrl = eventData.specialFormPath ? `${window.location.origin}${eventData.specialFormPath}` : '';
   const qrTabs = document.querySelector('[data-qr-tabs]');
+
+  if (specialFormQrImage && specialFormUrl) {
+    specialFormQrImage.src = buildQrUrl(specialFormUrl);
+    specialFormQrImage.alt = `Branded QR code for ${eventData.eventLabel}`;
+  }
+
+  if (specialFormQrOpenLink && specialFormUrl) {
+    specialFormQrOpenLink.href = buildQrUrl(specialFormUrl);
+    specialFormQrOpenLink.addEventListener('click', (event) => {
+      event.preventDefault();
+      openBrandedQrTab(eventData, specialFormUrl);
+    });
+  }
+
+  attachSpecialFormEditorHandlers(eventData);
 
   if (qrImage) {
     qrImage.src = buildQrUrl(rsvpUrl);
@@ -2064,6 +2306,77 @@ function attachEventDetailHandlers(eventData) {
       }
     });
   }
+}
+
+function attachSpecialFormEditorHandlers(eventData) {
+  const editor = document.getElementById('specialFormEditor');
+
+  if (!editor || !isSpecialEvent(eventData)) {
+    return;
+  }
+
+  const builder = editor.querySelector('[data-special-builder]');
+  const status = document.getElementById('specialFormStatus');
+  const saveButton = document.getElementById('saveSpecialFormButton');
+
+  attachSpecialFormBuilder(builder, {
+    onStatus: (message, className) => setStatus(status, message, className)
+  });
+
+  if (!saveButton) {
+    return;
+  }
+
+  saveButton.addEventListener('click', async () => {
+    const validationError = validateSpecialFormDraft(builder);
+
+    if (validationError) {
+      setStatus(status, validationError, 'is-error');
+      return;
+    }
+
+    setStatus(status, '', '');
+
+    try {
+      setButtonLoading(saveButton, true, 'Saving...');
+      const result = await fetchJson(`/events/${eventData.eventId}`, {
+        method: 'PATCH',
+        body: {
+          action: 'special-form',
+          ...buildSpecialFormPayload(builder)
+        }
+      });
+
+      // Freshly uploaded pictures come back with a stored image id. Keep the
+      // local copy under that id so previews survive without a full reload.
+      const draft = getSpecialFormDraft();
+      const savedFields = (result.event && result.event.specialForm && result.event.specialForm.fields) || [];
+
+      savedFields.forEach((savedField) => {
+        const field = draft.fields.find((item) => item.fieldId === savedField.fieldId);
+
+        if (!field || field.type !== 'image' || !savedField.imageId) {
+          return;
+        }
+
+        if (field.imageDataUrl) {
+          draft.images[savedField.imageId] = field.imageDataUrl;
+          field.imageDataUrl = '';
+        }
+
+        field.imageId = savedField.imageId;
+      });
+
+      Object.assign(eventData, result.event);
+      refreshSpecialFormBlocks(builder);
+      syncDynamicHeaderTitle();
+      setStatus(status, result.message, 'is-success');
+    } catch (error) {
+      setStatus(status, error.message, 'is-error');
+    } finally {
+      setButtonLoading(saveButton, false, 'Save Form');
+    }
+  });
 }
 
 function closeRsvpSettingsModal() {
@@ -3277,6 +3590,8 @@ function renderQrGeneratorPage() {
 }
 
 function renderCreateEventPage() {
+  initSpecialFormDraft();
+
   return renderAdminFrame({
     activeView: 'create',
     user: state.session,
@@ -3322,6 +3637,15 @@ function renderCreateEventPage() {
             <div class="field full">
               <label for="location">Location <span class="required">*</span></label>
               <textarea id="location" name="location" placeholder="Boardroom 3, 8th Floor, Mallberry Suites, Cagayan de Oro City" required></textarea>
+            </div>
+            <div id="specialEventSetup" class="field full special-event-setup" hidden>
+              <div class="inbody-setup-head">
+                <div>
+                  <span class="section-kicker">Special event workflow</span>
+                  <h3>Name the event and build its form</h3>
+                </div>
+              </div>
+              ${renderSpecialFormBuilder()}
             </div>
             <div id="wellnessQuizEventSetup" class="field full wellness-quiz-event-setup" hidden>
               <label for="wellnessQuizTitle">Wellness Quiz Title <span class="required">*</span></label>
@@ -3388,10 +3712,669 @@ function renderCreateEventPage() {
             <li>An RSVP page for invite confirmation.</li>
             <li>An attendance page for on-site registration.</li>
             <li>Dedicated Google Sheet tabs for each workflow.</li>
+            <li>For a Special Event: one custom form page built from your own questions, polls, choices, and images.</li>
           </ul>
         </aside>
       </section>
     `
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Special event form builder
+// ---------------------------------------------------------------------------
+
+function createSpecialFieldId() {
+  return `fld_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function isSpecialFormChoiceType(type) {
+  return SPECIAL_FORM_CHOICE_TYPES.includes(type);
+}
+
+function isSpecialFormDisplayType(type) {
+  return SPECIAL_FORM_DISPLAY_TYPES.includes(type);
+}
+
+function getSpecialBlockMeta(type) {
+  return SPECIAL_FORM_BLOCKS.find((block) => block.type === type) || { label: type, hint: '' };
+}
+
+function createSpecialFormField(type) {
+  const field = {
+    fieldId: createSpecialFieldId(),
+    type,
+    label: '',
+    help: '',
+    required: false
+  };
+
+  if (isSpecialFormChoiceType(type)) {
+    field.options = ['Option 1', 'Option 2'];
+    field.allowOther = false;
+  }
+
+  if (type === 'rating') {
+    field.ratingMax = 10;
+  }
+
+  if (type === 'image') {
+    field.imageId = '';
+    field.imageDataUrl = '';
+    field.imageName = '';
+  }
+
+  return field;
+}
+
+function initSpecialFormDraft(eventData = {}, images = {}) {
+  const form = eventData.specialForm || {};
+
+  state.specialForm = {
+    name: eventData.specialEventName || '',
+    description: form.description || '',
+    submitLabel: form.submitLabel || 'Submit',
+    successMessage: form.successMessage || 'Thank you! Your response has been recorded.',
+    accepting: eventData.specialFormAccepting !== false,
+    fields: (form.fields || []).map((field) => ({
+      ...field,
+      options: Array.isArray(field.options) ? field.options.slice() : undefined
+    })),
+    images: { ...images }
+  };
+
+  return state.specialForm;
+}
+
+function getSpecialFormDraft() {
+  if (!state.specialForm) {
+    initSpecialFormDraft();
+  }
+
+  return state.specialForm;
+}
+
+function getSpecialFieldPreviewSrc(field) {
+  const draft = getSpecialFormDraft();
+  return field.imageDataUrl || (field.imageId ? draft.images[field.imageId] || '' : '');
+}
+
+// Text inputs stay uncontrolled so typing never loses focus; the draft is refreshed
+// from the DOM right before any structural change and before saving.
+function syncSpecialFormDraftFromDom(root) {
+  if (!root) {
+    return getSpecialFormDraft();
+  }
+
+  const draft = getSpecialFormDraft();
+  const nameInput = root.querySelector('[data-special-name]');
+  const descriptionInput = root.querySelector('[data-special-description]');
+  const submitLabelInput = root.querySelector('[data-special-submit-label]');
+  const successInput = root.querySelector('[data-special-success]');
+  const acceptingInput = root.querySelector('[data-special-accepting]');
+
+  if (nameInput) {
+    draft.name = nameInput.value;
+  }
+
+  if (descriptionInput) {
+    draft.description = descriptionInput.value;
+  }
+
+  if (submitLabelInput) {
+    draft.submitLabel = submitLabelInput.value;
+  }
+
+  if (successInput) {
+    draft.successMessage = successInput.value;
+  }
+
+  if (acceptingInput) {
+    draft.accepting = acceptingInput.checked;
+  }
+
+  root.querySelectorAll('[data-special-block]').forEach((blockEl) => {
+    const field = draft.fields.find((item) => item.fieldId === blockEl.dataset.specialBlock);
+
+    if (!field) {
+      return;
+    }
+
+    const labelInput = blockEl.querySelector('[data-block-label]');
+    const helpInput = blockEl.querySelector('[data-block-help]');
+    const requiredInput = blockEl.querySelector('[data-block-required]');
+    const ratingInput = blockEl.querySelector('[data-block-rating-max]');
+    const allowOtherInput = blockEl.querySelector('[data-block-allow-other]');
+
+    if (labelInput) {
+      field.label = labelInput.value;
+    }
+
+    if (helpInput) {
+      field.help = helpInput.value;
+    }
+
+    if (requiredInput) {
+      field.required = requiredInput.checked;
+    }
+
+    if (ratingInput) {
+      field.ratingMax = Number.parseInt(ratingInput.value, 10) || 10;
+    }
+
+    if (allowOtherInput) {
+      field.allowOther = allowOtherInput.checked;
+    }
+
+    if (isSpecialFormChoiceType(field.type)) {
+      field.options = Array.from(blockEl.querySelectorAll('[data-block-option]')).map((input) => input.value);
+    }
+  });
+
+  return draft;
+}
+
+function buildSpecialFormPayload(root) {
+  const draft = syncSpecialFormDraftFromDom(root);
+
+  return {
+    specialEventName: draft.name.trim(),
+    specialFormAccepting: draft.accepting,
+    specialForm: {
+      description: draft.description.trim(),
+      submitLabel: draft.submitLabel.trim() || 'Submit',
+      successMessage: draft.successMessage.trim(),
+      fields: draft.fields.map((field) => {
+        const payload = {
+          fieldId: field.fieldId,
+          type: field.type,
+          label: field.label.trim(),
+          help: (field.help || '').trim(),
+          required: Boolean(field.required)
+        };
+
+        if (isSpecialFormChoiceType(field.type)) {
+          payload.options = (field.options || []).map((option) => option.trim()).filter(Boolean);
+          payload.allowOther = Boolean(field.allowOther);
+        }
+
+        if (field.type === 'rating') {
+          payload.ratingMax = field.ratingMax || 10;
+        }
+
+        if (field.type === 'image') {
+          payload.imageName = field.imageName || '';
+
+          if (field.imageDataUrl) {
+            payload.imageDataUrl = field.imageDataUrl;
+          } else {
+            payload.imageId = field.imageId || '';
+          }
+        }
+
+        return payload;
+      })
+    }
+  };
+}
+
+function validateSpecialFormDraft(root) {
+  const draft = syncSpecialFormDraftFromDom(root);
+
+  if (!draft.name.trim()) {
+    return 'Give this special event a name, for example GeneSys Circle.';
+  }
+
+  for (let index = 0; index < draft.fields.length; index += 1) {
+    const field = draft.fields[index];
+    const position = index + 1;
+
+    if (field.type !== 'image' && !field.label.trim()) {
+      return `Block ${position} needs a question or heading.`;
+    }
+
+    if (isSpecialFormChoiceType(field.type)) {
+      const options = (field.options || []).map((option) => option.trim()).filter(Boolean);
+
+      if (options.length < 2) {
+        return `"${field.label.trim() || `Block ${position}`}" needs at least two choices.`;
+      }
+    }
+
+    if (field.type === 'image' && !field.imageDataUrl && !field.imageId) {
+      return `Image block ${position} has no picture uploaded yet.`;
+    }
+  }
+
+  return '';
+}
+
+function renderSpecialFormBuilder({ showAccepting = false } = {}) {
+  const draft = getSpecialFormDraft();
+
+  return `
+    <div class="special-builder" data-special-builder>
+      <div class="grid special-builder-meta">
+        <div class="field">
+          <label for="specialEventName">Event Name <span class="required">*</span></label>
+          <input
+            id="specialEventName"
+            type="text"
+            data-special-name
+            maxlength="80"
+            placeholder="GeneSys Circle"
+            value="${escapeAttribute(draft.name)}"
+          >
+          <span class="field-help">Shown as the headline on the public form, e.g. GeneSys Anniversary or Awarding Night.</span>
+        </div>
+        <div class="field">
+          <label for="specialSubmitLabel">Submit Button Text</label>
+          <input
+            id="specialSubmitLabel"
+            type="text"
+            data-special-submit-label
+            maxlength="40"
+            placeholder="Submit"
+            value="${escapeAttribute(draft.submitLabel)}"
+          >
+        </div>
+      </div>
+      <div class="field full">
+        <label for="specialDescription">Intro Message</label>
+        <textarea
+          id="specialDescription"
+          data-special-description
+          maxlength="600"
+          placeholder="Tell attendees what this form is for."
+        >${escapeHtml(draft.description)}</textarea>
+      </div>
+      <div class="field full">
+        <label for="specialSuccessMessage">Thank-you Message</label>
+        <input
+          id="specialSuccessMessage"
+          type="text"
+          data-special-success
+          maxlength="240"
+          placeholder="Thank you! Your response has been recorded."
+          value="${escapeAttribute(draft.successMessage)}"
+        >
+      </div>
+      ${
+        showAccepting
+          ? `
+            <label class="special-accepting-toggle">
+              <input type="checkbox" data-special-accepting ${draft.accepting ? 'checked' : ''}>
+              <span>Accept new responses</span>
+            </label>
+          `
+          : ''
+      }
+
+      <div class="special-builder-head">
+        <div>
+          <span class="section-kicker">Form blocks</span>
+          <h3>Questions and content</h3>
+          <p>Add any mix of questions, polls, headings, and images. Drag-free ordering with the arrows.</p>
+        </div>
+      </div>
+
+      <div class="special-block-list" data-special-blocks>
+        ${renderSpecialFormBlockList()}
+      </div>
+
+      <div class="special-add-palette">
+        <span class="special-add-label">Add block</span>
+        <div class="special-add-buttons">
+          ${SPECIAL_FORM_BLOCKS.map(
+            (block) => `
+              <button type="button" class="special-add-button" data-add-special-block="${escapeAttribute(block.type)}" title="${escapeAttribute(block.hint)}">
+                ${escapeHtml(block.label)}
+              </button>
+            `
+          ).join('')}
+        </div>
+      </div>
+      <input type="file" accept="image/*" data-special-image-input hidden>
+    </div>
+  `;
+}
+
+function renderSpecialFormBlockList() {
+  const draft = getSpecialFormDraft();
+
+  if (!draft.fields.length) {
+    return `
+      <div class="empty-state empty-state-modern special-block-empty">
+        <strong>No blocks yet.</strong>
+        <span>Pick a block below to start building your form.</span>
+      </div>
+    `;
+  }
+
+  return draft.fields.map((field, index) => renderSpecialFormBlock(field, index, draft.fields.length)).join('');
+}
+
+function renderSpecialFormBlock(field, index, total) {
+  const meta = getSpecialBlockMeta(field.type);
+  const previewSrc = getSpecialFieldPreviewSrc(field);
+
+  return `
+    <article class="special-block" data-special-block="${escapeAttribute(field.fieldId)}">
+      <header class="special-block-head">
+        <span class="special-block-kind">${escapeHtml(meta.label)}</span>
+        <div class="special-block-actions">
+          <button type="button" class="special-block-icon" data-move-special-block="up" ${index === 0 ? 'disabled' : ''} aria-label="Move block up">
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 19V5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M6 11L12 5L18 11" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <button type="button" class="special-block-icon" data-move-special-block="down" ${index === total - 1 ? 'disabled' : ''} aria-label="Move block down">
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 5V19" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M6 13L12 19L18 13" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <button type="button" class="special-block-icon special-block-icon-danger" data-remove-special-block aria-label="Remove block">
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 7H19" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M10 11V17" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M14 11V17" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M7.5 7L8.2 19.1C8.3 20 9 20.5 9.9 20.5H14.1C15 20.5 15.7 20 15.8 19.1L16.5 7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+          </button>
+        </div>
+      </header>
+
+      ${
+        field.type === 'image'
+          ? `
+            <div class="field full">
+              <label>Caption</label>
+              <input type="text" data-block-label maxlength="180" placeholder="Optional caption" value="${escapeAttribute(field.label)}">
+            </div>
+            <div class="special-image-slot">
+              ${
+                previewSrc
+                  ? `<img class="special-image-preview" src="${escapeAttribute(previewSrc)}" alt="${escapeAttribute(field.label || 'Form image')}">`
+                  : '<div class="special-image-placeholder">No picture selected yet.</div>'
+              }
+              <button type="button" class="button-link button-link-secondary" data-upload-special-image>
+                ${previewSrc ? 'Replace picture' : 'Upload picture'}
+              </button>
+            </div>
+          `
+          : `
+            <div class="field full">
+              <label>${escapeHtml(field.type === 'heading' ? 'Heading text' : 'Question')} <span class="required">*</span></label>
+              <input type="text" data-block-label maxlength="180" placeholder="${escapeAttribute(field.type === 'heading' ? 'Program Flow' : 'Type your question')}" value="${escapeAttribute(field.label)}">
+            </div>
+            <div class="field full">
+              <label>Helper Text</label>
+              <input type="text" data-block-help maxlength="300" placeholder="Optional guidance shown under the question" value="${escapeAttribute(field.help || '')}">
+            </div>
+          `
+      }
+
+      ${
+        isSpecialFormChoiceType(field.type)
+          ? `
+            <div class="special-option-list" data-special-options>
+              ${(field.options || []).map((option, optionIndex) => renderSpecialFormOptionRow(option, optionIndex)).join('')}
+            </div>
+            <div class="special-option-footer">
+              <button type="button" class="button-link button-link-secondary" data-add-special-option>Add choice</button>
+              ${
+                field.type === 'checkbox' || field.type === 'multiple-choice'
+                  ? `
+                    <label class="special-inline-toggle">
+                      <input type="checkbox" data-block-allow-other ${field.allowOther ? 'checked' : ''}>
+                      <span>Allow "Other" answer</span>
+                    </label>
+                  `
+                  : ''
+              }
+            </div>
+          `
+          : ''
+      }
+
+      ${
+        field.type === 'photo-upload'
+          ? '<p class="special-block-note">Respondents attach a photo from their phone or computer. Photos are shrunk automatically and shown in your response log.</p>'
+          : ''
+      }
+
+      ${
+        field.type === 'rating'
+          ? `
+            <div class="field">
+              <label>Highest Score</label>
+              <select data-block-rating-max>
+                ${[3, 5, 7, 10].map((value) => `<option value="${value}" ${Number(field.ratingMax || 10) === value ? 'selected' : ''}>1 to ${value}</option>`).join('')}
+              </select>
+            </div>
+          `
+          : ''
+      }
+
+      ${
+        isSpecialFormDisplayType(field.type)
+          ? ''
+          : `
+            <label class="special-inline-toggle">
+              <input type="checkbox" data-block-required ${field.required ? 'checked' : ''}>
+              <span>Required</span>
+            </label>
+          `
+      }
+    </article>
+  `;
+}
+
+function renderSpecialFormOptionRow(option, index) {
+  return `
+    <div class="special-option-row">
+      <input type="text" data-block-option maxlength="160" placeholder="Choice ${index + 1}" value="${escapeAttribute(option)}">
+      <button type="button" class="special-block-icon special-block-icon-danger" data-remove-special-option="${index}" aria-label="Remove choice">
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 6L18 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+  `;
+}
+
+// Callers sync the draft from the DOM themselves before mutating it. Re-syncing
+// here would read the stale DOM back over the change that was just made.
+function refreshSpecialFormBlocks(root) {
+  if (!root) {
+    return;
+  }
+
+  const list = root.querySelector('[data-special-blocks]');
+
+  if (list) {
+    list.innerHTML = renderSpecialFormBlockList();
+  }
+}
+
+function attachSpecialFormBuilder(root, { onStatus } = {}) {
+  if (!root) {
+    return;
+  }
+
+  const imageInput = root.querySelector('[data-special-image-input]');
+  let pendingImageFieldId = '';
+
+  const report = (message, className) => {
+    if (typeof onStatus === 'function') {
+      onStatus(message, className);
+    }
+  };
+
+  root.addEventListener('click', async (event) => {
+    const addButton = event.target.closest('[data-add-special-block]');
+
+    if (addButton) {
+      syncSpecialFormDraftFromDom(root);
+      getSpecialFormDraft().fields.push(createSpecialFormField(addButton.dataset.addSpecialBlock));
+      refreshSpecialFormBlocks(root);
+      const blocks = root.querySelectorAll('[data-special-block]');
+      const lastBlock = blocks[blocks.length - 1];
+
+      if (lastBlock) {
+        lastBlock.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        const firstInput = lastBlock.querySelector('[data-block-label]');
+
+        if (firstInput) {
+          firstInput.focus();
+        }
+      }
+
+      return;
+    }
+
+    const blockEl = event.target.closest('[data-special-block]');
+
+    if (!blockEl) {
+      return;
+    }
+
+    const draft = getSpecialFormDraft();
+    const fieldId = blockEl.dataset.specialBlock;
+    const fieldIndex = draft.fields.findIndex((item) => item.fieldId === fieldId);
+
+    if (fieldIndex < 0) {
+      return;
+    }
+
+    if (event.target.closest('[data-remove-special-block]')) {
+      syncSpecialFormDraftFromDom(root);
+      draft.fields.splice(fieldIndex, 1);
+      refreshSpecialFormBlocks(root);
+      return;
+    }
+
+    const moveButton = event.target.closest('[data-move-special-block]');
+
+    if (moveButton) {
+      syncSpecialFormDraftFromDom(root);
+      const target = moveButton.dataset.moveSpecialBlock === 'up' ? fieldIndex - 1 : fieldIndex + 1;
+
+      if (target >= 0 && target < draft.fields.length) {
+        const [moved] = draft.fields.splice(fieldIndex, 1);
+        draft.fields.splice(target, 0, moved);
+        refreshSpecialFormBlocks(root);
+      }
+
+      return;
+    }
+
+    if (event.target.closest('[data-add-special-option]')) {
+      syncSpecialFormDraftFromDom(root);
+      const field = draft.fields[fieldIndex];
+      field.options = (field.options || []).concat(`Option ${(field.options || []).length + 1}`);
+      refreshSpecialFormBlocks(root);
+      return;
+    }
+
+    const removeOptionButton = event.target.closest('[data-remove-special-option]');
+
+    if (removeOptionButton) {
+      syncSpecialFormDraftFromDom(root);
+      const field = draft.fields[fieldIndex];
+      const optionIndex = Number.parseInt(removeOptionButton.dataset.removeSpecialOption, 10);
+
+      if (Number.isInteger(optionIndex) && (field.options || []).length > 2) {
+        field.options.splice(optionIndex, 1);
+        refreshSpecialFormBlocks(root);
+      } else {
+        report('Keep at least two choices.', 'is-error');
+      }
+
+      return;
+    }
+
+    if (event.target.closest('[data-upload-special-image]') && imageInput) {
+      syncSpecialFormDraftFromDom(root);
+      pendingImageFieldId = fieldId;
+      imageInput.value = '';
+      imageInput.click();
+    }
+  });
+
+  if (imageInput) {
+    imageInput.addEventListener('change', async () => {
+      const file = imageInput.files && imageInput.files[0];
+
+      if (!file || !pendingImageFieldId) {
+        return;
+      }
+
+      const draft = getSpecialFormDraft();
+      const field = draft.fields.find((item) => item.fieldId === pendingImageFieldId);
+
+      if (!field) {
+        return;
+      }
+
+      try {
+        report('Preparing picture...', '');
+        const dataUrl = await compressImageFile(file);
+
+        if (dataUrl.length > SPECIAL_FORM_MAX_IMAGE_CHARS) {
+          report('That picture is too large even after shrinking. Try a smaller one.', 'is-error');
+          return;
+        }
+
+        field.imageDataUrl = dataUrl;
+        field.imageName = file.name || '';
+        field.imageId = '';
+        refreshSpecialFormBlocks(root);
+        report('Picture ready. Remember to save.', 'is-success');
+      } catch (error) {
+        report(error.message || 'That picture could not be read.', 'is-error');
+      } finally {
+        pendingImageFieldId = '';
+        imageInput.value = '';
+      }
+    });
+  }
+}
+
+// Phone photos are far larger than a form needs, so shrink them in the browser
+// before they ever reach the request body.
+function compressImageFile(file, maxChars = SPECIAL_FORM_MAX_IMAGE_CHARS) {
+  return new Promise((resolve, reject) => {
+    if (!file.type || !file.type.startsWith('image/')) {
+      reject(new Error('Choose an image file.'));
+      return;
+    }
+
+    const reader = new FileReader();
+
+    reader.onerror = () => reject(new Error('That picture could not be read.'));
+    reader.onload = () => {
+      const image = new Image();
+
+      image.onerror = () => reject(new Error('That picture could not be read.'));
+      image.onload = () => {
+        const scale = Math.min(
+          1,
+          SPECIAL_FORM_MAX_IMAGE_DIMENSION / Math.max(image.naturalWidth, image.naturalHeight)
+        );
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+        canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+
+        const context = canvas.getContext('2d');
+        context.fillStyle = '#ffffff';
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+        let quality = 0.82;
+        let dataUrl = canvas.toDataURL('image/jpeg', quality);
+
+        while (dataUrl.length > maxChars && quality > 0.4) {
+          quality -= 0.12;
+          dataUrl = canvas.toDataURL('image/jpeg', quality);
+        }
+
+        resolve(dataUrl);
+      };
+
+      image.src = String(reader.result || '');
+    };
+
+    reader.readAsDataURL(file);
   });
 }
 
@@ -3437,6 +4420,7 @@ function renderEventDetailPage(eventData, previews = {}) {
   const isCelaviveSpaParty = isCelaviveSpaPartyEvent(eventData);
   const isWellnessQuiz = isWellnessQuizEvent(eventData);
   const isGroupDelivery = isGroupDeliveryEvent(eventData);
+  const isSpecial = isSpecialEvent(eventData);
   const rsvpUrl = `${window.location.origin}${eventData.rsvpPath}`;
   const attendanceUrl = `${window.location.origin}${eventData.attendancePath}`;
   const inBodyUrl = eventData.inBodyPath ? `${window.location.origin}${eventData.inBodyPath}` : '';
@@ -3444,6 +4428,9 @@ function renderEventDetailPage(eventData, previews = {}) {
   const celaviveSurveyUrl = eventData.celaviveSurveyPath ? `${window.location.origin}${eventData.celaviveSurveyPath}` : '';
   const wellnessQuizUrl = eventData.wellnessQuizPath ? `${window.location.origin}${eventData.wellnessQuizPath}` : '';
   const groupDeliveryUrl = eventData.groupDeliveryPath ? `${window.location.origin}${eventData.groupDeliveryPath}` : '';
+  const specialFormUrl = eventData.specialFormPath ? `${window.location.origin}${eventData.specialFormPath}` : '';
+  const specialFormCount = (previews.specialFormResponses || []).length;
+  const specialFormPreviewRows = buildResponsePreviewRows(previews.specialFormResponses || [], 'special-form');
   const inBodyCount = (previews.inBodyResponses || []).length;
   const celaviveRaffleCount = (previews.celaviveRaffleResponses || []).length;
   const celaviveSurveyCount = (previews.celaviveSurveyResponses || []).length;
@@ -3458,7 +4445,7 @@ function renderEventDetailPage(eventData, previews = {}) {
   return renderAdminFrame({
     activeView: eventData.isArchived ? 'archive' : 'dashboard',
     user: state.session,
-    title: eventData.eventType,
+    title: isSpecial ? getSpecialEventTitle(eventData) : eventData.eventType,
     titleClass: eventData.isArchived ? '' : 'admin-title-dynamic',
     subtitle: eventData.isArchived
       ? 'Review this completed event and its published response history.'
@@ -3477,7 +4464,7 @@ function renderEventDetailPage(eventData, previews = {}) {
                 <p>Use the published links below to invite attendees or register them on-site.</p>
               </div>
               ${
-                eventData.isArchived || isInBody || isWellnessQuiz
+                eventData.isArchived || isInBody || isWellnessQuiz || isSpecial
                   ? ''
                   : `
                     <button id="openRsvpSettingsButton" type="button" class="button-link button-link-secondary rsvp-settings-open-button">
@@ -3488,7 +4475,7 @@ function renderEventDetailPage(eventData, previews = {}) {
             </div>
             <div class="detail-link-grid">
               ${
-                isInBody || isCelaviveRaffle || isWellnessQuiz || isGroupDelivery
+                isInBody || isCelaviveRaffle || isWellnessQuiz || isGroupDelivery || isSpecial
                   ? ''
                   : `
                     <div class="link-stack modern-link-stack">
@@ -3572,6 +4559,21 @@ function renderEventDetailPage(eventData, previews = {}) {
                   : ''
               }
               ${
+                isSpecial
+                  ? `
+                    <div class="link-stack modern-link-stack">
+                      <label>${escapeHtml(getSpecialEventTitle(eventData))} Form Link</label>
+                      ${renderEventUrlControl({
+                        url: specialFormUrl,
+                        openHref: eventData.specialFormPath,
+                        copyLabel: 'form link',
+                        openLabel: 'Open form'
+                      })}
+                    </div>
+                  `
+                  : ''
+              }
+              ${
                 isWellnessQuiz
                   ? `
                     <div class="link-stack modern-link-stack">
@@ -3590,7 +4592,7 @@ function renderEventDetailPage(eventData, previews = {}) {
             <div id="eventActionStatus" class="status event-link-status" aria-live="polite"></div>
             <div class="event-link-grid detail-response-grid detail-response-grid-inline">
               ${
-                isInBody || isCelaviveRaffle || isWellnessQuiz || isGroupDelivery
+                isInBody || isCelaviveRaffle || isWellnessQuiz || isGroupDelivery || isSpecial
                   ? ''
                   : `
                     <a href="/events/${encodeURIComponent(eventData.eventId)}/rsvp-responses" data-link class="action-card action-card-strong">
@@ -3654,6 +4656,20 @@ function renderEventDetailPage(eventData, previews = {}) {
                   : ''
               }
               ${
+                isSpecial
+                  ? `
+                    <a href="/events/${encodeURIComponent(eventData.eventId)}/special-form-responses" data-link class="action-card action-card-strong">
+                      <div class="detail-response-card-head">
+                        <strong>View all form responses</strong>
+                        <span class="detail-response-count">${specialFormCount}</span>
+                      </div>
+                      <span>Latest submissions from your custom form.</span>
+                      ${renderResponsePreviewList(specialFormPreviewRows, 'special-form')}
+                    </a>
+                  `
+                  : ''
+              }
+              ${
                 isWellnessQuiz
                   ? `
                     <a href="/events/${encodeURIComponent(eventData.eventId)}/wellness-quiz-responses" data-link class="action-card">
@@ -3671,11 +4687,12 @@ function renderEventDetailPage(eventData, previews = {}) {
           </section>
           ${isWellnessQuiz ? renderWellnessRaffleEditor(eventData) : ''}
           ${isGroupDelivery ? renderGroupDeliveryAdminPanel(eventData, previews) : ''}
+          ${isSpecial ? renderSpecialFormEditor(eventData, previews.specialFormImages || {}) : ''}
         </div>
 
         <aside class="detail-side-stack">
           ${
-            isInBody || isCelaviveRaffle || isWellnessQuiz || isGroupDelivery
+            isInBody || isCelaviveRaffle || isWellnessQuiz || isGroupDelivery || isSpecial
               ? ''
               : isCelaviveSpaParty
                 ? `
@@ -3804,6 +4821,29 @@ function renderEventDetailPage(eventData, previews = {}) {
               : ''
           }
           ${
+            isSpecial
+              ? `
+                <section class="workspace-panel qr-card qr-card-active">
+                  <div class="inbody-qr-card-head">
+                    <div>
+                      <span class="section-kicker">Form QR</span>
+                      <h3>${escapeHtml(getSpecialEventTitle(eventData))} QR code</h3>
+                    </div>
+                    <span class="inbody-signup-state ${eventData.specialFormAccepting ? 'is-open' : 'is-locked'}">${eventData.specialFormAccepting ? 'Open' : 'Closed'}</span>
+                  </div>
+                  <p>Share this QR so attendees can open and fill in your form.</p>
+                  <div class="qr-panel">
+                    <div class="qr-image-stack">
+                      <img id="specialFormQrImage" class="qr-image" alt="Special event form QR code">
+                      <img class="qr-brand-mark" src="/assets/logo/Genesys_Logo2.svg" alt="" aria-hidden="true">
+                    </div>
+                  </div>
+                  <a id="specialFormQrOpenLink" class="button-link button-link-secondary" target="_blank" rel="noreferrer" href="${escapeAttribute(buildQrUrl(specialFormUrl))}">Open QR in new tab</a>
+                </section>
+              `
+              : ''
+          }
+          ${
             isWellnessQuiz
               ? `
                 <section class="workspace-panel qr-card qr-card-active">
@@ -3823,7 +4863,7 @@ function renderEventDetailPage(eventData, previews = {}) {
           }
         </aside>
       </section>
-      ${eventData.isArchived || isInBody || isWellnessQuiz || isGroupDelivery ? '' : renderRsvpSettingsModal(eventData)}
+      ${eventData.isArchived || isInBody || isWellnessQuiz || isGroupDelivery || isSpecial ? '' : renderRsvpSettingsModal(eventData)}
     `
   });
 }
@@ -3887,6 +4927,34 @@ function renderGroupDeliveryAdminPanel(eventData, previews = {}) {
             </div>
           ` : '<p class="muted-copy">Cycle 1 will open automatically.</p>'}
         </section>
+      </div>
+    </section>
+  `;
+}
+
+function renderSpecialFormEditor(eventData, images = {}) {
+  initSpecialFormDraft(eventData, images);
+  const questionCount = (eventData.specialForm && eventData.specialForm.fields
+    ? eventData.specialForm.fields.filter((field) => !SPECIAL_FORM_DISPLAY_TYPES.includes(field.type))
+    : []).length;
+
+  return `
+    <section class="workspace-panel workspace-panel-large special-form-editor" id="specialFormEditor">
+      <div class="workspace-heading">
+        <div>
+          <span class="section-kicker">Form builder</span>
+          <h2>${escapeHtml(getSpecialEventTitle(eventData))}</h2>
+          <p>Change the event name, add or reorder blocks, then save. ${questionCount} question${questionCount === 1 ? '' : 's'} currently published.</p>
+        </div>
+        <div class="response-meta-pill">${eventData.specialFormAccepting ? 'Accepting responses' : 'Closed'}</div>
+      </div>
+      <p class="special-form-note">
+        Renaming or removing a question keeps every answer already collected: its column stays in the response sheet.
+      </p>
+      ${renderSpecialFormBuilder({ showAccepting: true })}
+      <div class="form-submit-row">
+        <button type="button" id="saveSpecialFormButton">Save Form</button>
+        <div id="specialFormStatus" class="status" aria-live="polite"></div>
       </div>
     </section>
   `;
@@ -4108,7 +5176,7 @@ function renderResponsesPage(title, eventData, responses, mode) {
             : `
               <div class="empty-state empty-state-modern">
                 <strong>No responses yet.</strong>
-                <span>This event has not collected any ${mode === 'rsvp' ? 'RSVP' : mode === 'inbody' ? 'InBody' : mode === 'celavive-raffle' ? 'Celavive raffle' : 'attendance'} entries so far.</span>
+                <span>This event has not collected any ${escapeHtml(getResponseModeLabel(mode))} entries so far.</span>
               </div>
             `
         }
@@ -4399,6 +5467,28 @@ function renderMobileRsvpResponses(columns, rows) {
 }
 
 function buildResponsePreviewRows(responses, mode) {
+  if (mode === 'special-form') {
+    return responses.slice(0, 3).map((row) => {
+      const answerColumns = Object.keys(row).filter(
+        (column) => !SPECIAL_FORM_RESERVED_COLUMNS.includes(column)
+      );
+      const isReadable = (column) => {
+        const cell = String(row[column] || '').trim();
+        return Boolean(cell) && !isSpecialPhotoReference(cell);
+      };
+      const firstFilled = answerColumns.find(isReadable);
+      const secondFilled = answerColumns.find((column) => column !== firstFilled && isReadable(column));
+
+      return {
+        name: firstFilled ? String(row[firstFilled]).slice(0, 60) : 'Form response',
+        metaLabel: secondFilled ? secondFilled.slice(0, 24) : 'Submitted',
+        metaValue: secondFilled
+          ? String(row[secondFilled]).slice(0, 60)
+          : formatMetricDateTime(row.Timestamp) || 'Recorded'
+      };
+    });
+  }
+
   return responses.slice(0, 3).map((row) => {
     const hasRsvpSlot = mode === 'rsvp' && row['Slot Label'];
 
@@ -4454,6 +5544,14 @@ function renderResponsePreviewList(rows, mode) {
 }
 
 function getVisibleResponseColumns(mode, responses) {
+  if (mode === 'special-form') {
+    const sourceColumns = responses.length ? Object.keys(responses[0]) : [];
+    // A custom form has no fixed shape, so show the submission time plus every answer column.
+    return sourceColumns.filter(
+      (column) => column === 'Timestamp' || !SPECIAL_FORM_RESERVED_COLUMNS.includes(column)
+    );
+  }
+
   const hiddenColumns = new Set([
     '__rowNumber',
     'Timestamp',
@@ -4718,6 +5816,450 @@ function renderPublicWellnessQuizPage(eventData) {
       </div>
     </div>
   `;
+}
+
+function renderPublicSpecialEventPage(eventData, images = {}) {
+  const eventDateTime = eventData.displayDateTime || formatMetricDateTime(eventData.dateTime);
+  const form = eventData.specialForm || { fields: [] };
+  const title = getSpecialEventTitle(eventData);
+  const isOpen = eventData.specialFormAccepting !== false;
+  const hasQuestions = (form.fields || []).some((field) => !SPECIAL_FORM_DISPLAY_TYPES.includes(field.type));
+
+  return `
+    <div class="page public-page">
+      <div class="public-shell-modern">
+        <section class="public-hero-panel">
+          <div class="public-hero-copy">
+            <h1 data-dynamic-title>${escapeHtml(title)}</h1>
+            <p class="lede">${escapeHtml(form.description || 'Fill in the form below to join this event.')}</p>
+          </div>
+          <div class="public-hero-gallery">
+            <div class="public-slideshow-frame">
+              <img class="public-slideshow-mark" src="/assets/logo/Genesys_Logo2.svg" alt="">
+              <img id="publicHeroSlideshowImage" class="public-slideshow-image" src="${publicCelaviveSlides[0]}" alt="Event gallery" data-slideshow="celavive">
+              <div class="public-slideshow-overlay">
+                <div class="public-slideshow-copy">
+                  <span>${escapeHtml(title)}</span>
+                  <strong>${escapeHtml(eventData.location)}</strong>
+                  <em>${escapeHtml(eventDateTime)}</em>
+                </div>
+                <div id="publicHeroSlideshowDots" class="public-slideshow-dots" aria-hidden="true"></div>
+              </div>
+            </div>
+          </div>
+        </section>
+        <section class="public-form-shell">
+          <div class="form-card public-form-card">
+            ${
+              isOpen && hasQuestions
+                ? `
+                  <div class="panel-head">
+                    <span class="section-kicker">Event form</span>
+                    <h2>${escapeHtml(title)}</h2>
+                  </div>
+                  <form id="publicSpecialForm" class="modern-form special-public-form">
+                    ${(form.fields || []).map((field) => renderSpecialFormPublicField(field, images)).join('')}
+                    <div class="form-submit-row">
+                      <button type="submit">${escapeHtml(form.submitLabel || 'Submit')}</button>
+                      <div id="publicFormStatus" class="status" aria-live="polite"></div>
+                    </div>
+                  </form>
+                `
+                : `
+                  <div class="panel-head">
+                    <span class="section-kicker">Event form</span>
+                    <h2>${escapeHtml(title)}</h2>
+                  </div>
+                  <div class="empty-state empty-state-modern">
+                    <strong>${isOpen ? 'This form is not ready yet.' : 'This form is closed.'}</strong>
+                    <span>${isOpen ? 'The organiser has not added any questions yet. Please check back shortly.' : 'The organiser is no longer accepting responses.'}</span>
+                  </div>
+                `
+            }
+            ${renderPoweredFooter('footer-note auth-legal public-form-powered')}
+          </div>
+        </section>
+      </div>
+    </div>
+  `;
+}
+
+function renderSpecialFormPublicField(field, images = {}) {
+  const fieldId = `special_${field.fieldId}`;
+  const required = field.required ? ' required' : '';
+  const requiredMark = field.required ? ' <span class="required">*</span>' : '';
+  const help = field.help
+    ? `<span class="field-help">${escapeHtml(field.help)}</span>`
+    : '';
+
+  if (field.type === 'heading') {
+    return `
+      <div class="special-public-heading">
+        <h3>${escapeHtml(field.label)}</h3>
+        ${field.help ? `<p>${escapeHtml(field.help)}</p>` : ''}
+      </div>
+    `;
+  }
+
+  if (field.type === 'image') {
+    const src = field.imageId ? images[field.imageId] || '' : '';
+
+    if (!src) {
+      return '';
+    }
+
+    return `
+      <figure class="special-public-image">
+        <img src="${escapeAttribute(src)}" alt="${escapeAttribute(field.label || 'Event image')}" loading="lazy">
+        ${field.label ? `<figcaption>${escapeHtml(field.label)}</figcaption>` : ''}
+      </figure>
+    `;
+  }
+
+  const labelHtml = `<label for="${escapeAttribute(fieldId)}">${escapeHtml(field.label)}${requiredMark}</label>`;
+
+  if (field.type === 'paragraph') {
+    return `
+      <div class="field full" data-special-field="${escapeAttribute(field.fieldId)}" data-special-type="paragraph">
+        ${labelHtml}
+        <textarea id="${escapeAttribute(fieldId)}" name="${escapeAttribute(fieldId)}" maxlength="4000"${required}></textarea>
+        ${help}
+      </div>
+    `;
+  }
+
+  if (field.type === 'dropdown') {
+    return `
+      <div class="field full" data-special-field="${escapeAttribute(field.fieldId)}" data-special-type="dropdown">
+        ${labelHtml}
+        <select id="${escapeAttribute(fieldId)}" name="${escapeAttribute(fieldId)}"${required}>
+          <option value="">Select an option</option>
+          ${(field.options || []).map((option) => `<option value="${escapeAttribute(option)}">${escapeHtml(option)}</option>`).join('')}
+        </select>
+        ${help}
+      </div>
+    `;
+  }
+
+  if (field.type === 'multiple-choice' || field.type === 'poll' || field.type === 'checkbox') {
+    const inputType = field.type === 'checkbox' ? 'checkbox' : 'radio';
+
+    return `
+      <div class="field full" data-special-field="${escapeAttribute(field.fieldId)}" data-special-type="${escapeAttribute(field.type)}">
+        <span class="field-label">${escapeHtml(field.label)}${requiredMark}</span>
+        ${help}
+        <div class="special-public-choices">
+          ${(field.options || []).map((option, index) => `
+            <label class="special-public-choice">
+              <input
+                type="${inputType}"
+                name="${escapeAttribute(fieldId)}"
+                value="${escapeAttribute(option)}"
+                data-special-choice
+                id="${escapeAttribute(`${fieldId}_${index}`)}"
+              >
+              <span>${escapeHtml(option)}</span>
+            </label>
+          `).join('')}
+          ${
+            field.allowOther
+              ? `
+                <label class="special-public-choice special-public-choice-other">
+                  <input type="${inputType}" name="${escapeAttribute(fieldId)}" value="" data-special-other-toggle>
+                  <span>Other</span>
+                  <input type="text" class="special-public-other-input" data-special-other-input maxlength="200" placeholder="Your answer">
+                </label>
+              `
+              : ''
+          }
+        </div>
+      </div>
+    `;
+  }
+
+  if (field.type === 'photo-upload') {
+    return `
+      <div class="field full" data-special-field="${escapeAttribute(field.fieldId)}" data-special-type="photo-upload">
+        <span class="field-label">${escapeHtml(field.label)}${requiredMark}</span>
+        ${help}
+        <div class="special-photo-upload">
+          <label class="special-photo-trigger" for="${escapeAttribute(fieldId)}">
+            <span>Choose a photo</span>
+            <input
+              id="${escapeAttribute(fieldId)}"
+              type="file"
+              accept="image/*"
+              data-special-photo-input
+              hidden
+            >
+          </label>
+          <div class="special-photo-preview" data-special-photo-preview hidden>
+            <img alt="Selected photo preview" data-special-photo-image>
+            <button type="button" class="special-photo-clear" data-special-photo-clear aria-label="Remove photo">Remove</button>
+          </div>
+          <span class="field-help" data-special-photo-status></span>
+        </div>
+      </div>
+    `;
+  }
+
+  if (field.type === 'rating') {
+    const max = Number(field.ratingMax) || 10;
+
+    return `
+      <div class="field full" data-special-field="${escapeAttribute(field.fieldId)}" data-special-type="rating">
+        <span class="field-label">${escapeHtml(field.label)}${requiredMark}</span>
+        ${help}
+        <div class="special-public-rating">
+          ${Array.from({ length: max }, (_, index) => index + 1).map((value) => `
+            <label class="special-public-rating-option">
+              <input type="radio" name="${escapeAttribute(fieldId)}" value="${value}" data-special-choice>
+              <span>${value}</span>
+            </label>
+          `).join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  const inputType = field.type === 'email'
+    ? 'email'
+    : field.type === 'phone'
+      ? 'tel'
+      : field.type === 'number'
+        ? 'number'
+        : field.type === 'date'
+          ? 'date'
+          : field.type === 'time'
+            ? 'time'
+            : 'text';
+
+  return `
+    <div class="field full" data-special-field="${escapeAttribute(field.fieldId)}" data-special-type="${escapeAttribute(field.type)}">
+      ${labelHtml}
+      <input
+        id="${escapeAttribute(fieldId)}"
+        name="${escapeAttribute(fieldId)}"
+        type="${inputType}"
+        ${field.type === 'phone' ? 'inputmode="tel"' : ''}
+        ${field.type === 'number' ? 'inputmode="decimal"' : ''}
+        maxlength="500"
+        ${required}
+      >
+      ${help}
+    </div>
+  `;
+}
+
+function collectSpecialFormAnswers(form, eventData) {
+  const fields = (eventData.specialForm && eventData.specialForm.fields) || [];
+  const answers = {};
+
+  for (const field of fields) {
+    if (SPECIAL_FORM_DISPLAY_TYPES.includes(field.type)) {
+      continue;
+    }
+
+    const wrapper = form.querySelector(`[data-special-field="${field.fieldId}"]`);
+
+    if (!wrapper) {
+      continue;
+    }
+
+    if (field.type === 'checkbox') {
+      const checked = Array.from(wrapper.querySelectorAll('[data-special-choice]:checked')).map((input) => input.value);
+      const otherToggle = wrapper.querySelector('[data-special-other-toggle]');
+      const otherInput = wrapper.querySelector('[data-special-other-input]');
+
+      if (otherToggle && otherToggle.checked && otherInput && otherInput.value.trim()) {
+        checked.push(otherInput.value.trim());
+      }
+
+      answers[field.fieldId] = checked;
+
+      if (field.required && !checked.length) {
+        throw new Error(`"${field.label}" is required.`);
+      }
+
+      continue;
+    }
+
+    if (field.type === 'photo-upload') {
+      const photo = state.specialPhotoUploads[field.fieldId];
+
+      if (field.required && !photo) {
+        throw new Error(`"${field.label}" needs a photo.`);
+      }
+
+      answers[field.fieldId] = photo || null;
+      continue;
+    }
+
+    if (field.type === 'multiple-choice' || field.type === 'poll' || field.type === 'rating') {
+      const selected = wrapper.querySelector('[data-special-choice]:checked');
+      const otherToggle = wrapper.querySelector('[data-special-other-toggle]');
+      const otherInput = wrapper.querySelector('[data-special-other-input]');
+      let value = selected ? selected.value : '';
+
+      if (!value && otherToggle && otherToggle.checked && otherInput) {
+        value = otherInput.value.trim();
+      }
+
+      if (field.required && !value) {
+        throw new Error(`"${field.label}" is required.`);
+      }
+
+      answers[field.fieldId] = value;
+      continue;
+    }
+
+    const input = wrapper.querySelector('input, textarea, select');
+    answers[field.fieldId] = input ? input.value : '';
+  }
+
+  return answers;
+}
+
+function attachSpecialPhotoInputs(form) {
+  form.querySelectorAll('[data-special-field][data-special-type="photo-upload"]').forEach((wrapper) => {
+    const fieldId = wrapper.dataset.specialField;
+    const input = wrapper.querySelector('[data-special-photo-input]');
+    const preview = wrapper.querySelector('[data-special-photo-preview]');
+    const previewImage = wrapper.querySelector('[data-special-photo-image]');
+    const clearButton = wrapper.querySelector('[data-special-photo-clear]');
+    const note = wrapper.querySelector('[data-special-photo-status]');
+
+    if (!input) {
+      return;
+    }
+
+    const clear = () => {
+      delete state.specialPhotoUploads[fieldId];
+      input.value = '';
+
+      if (preview) {
+        preview.hidden = true;
+      }
+
+      if (note) {
+        note.textContent = '';
+        note.classList.remove('is-error');
+      }
+    };
+
+    input.addEventListener('change', async () => {
+      const file = input.files && input.files[0];
+
+      if (!file) {
+        clear();
+        return;
+      }
+
+      if (note) {
+        note.textContent = 'Preparing photo...';
+        note.classList.remove('is-error');
+      }
+
+      try {
+        const dataUrl = await compressImageFile(file, SPECIAL_FORM_MAX_PHOTO_CHARS);
+
+        if (dataUrl.length > SPECIAL_FORM_MAX_PHOTO_CHARS) {
+          throw new Error('That photo is too large even after shrinking. Please pick another one.');
+        }
+
+        state.specialPhotoUploads[fieldId] = { dataUrl, fileName: file.name || '' };
+
+        if (previewImage) {
+          previewImage.src = dataUrl;
+        }
+
+        if (preview) {
+          preview.hidden = false;
+        }
+
+        if (note) {
+          note.textContent = file.name ? `Ready: ${file.name}` : 'Photo ready.';
+        }
+      } catch (error) {
+        clear();
+
+        if (note) {
+          note.textContent = error.message || 'That photo could not be read.';
+          note.classList.add('is-error');
+        }
+      }
+    });
+
+    if (clearButton) {
+      clearButton.addEventListener('click', clear);
+    }
+  });
+}
+
+function attachSpecialEventFormHandlers(eventData) {
+  const form = document.getElementById('publicSpecialForm');
+  state.specialPhotoUploads = {};
+
+  if (!form) {
+    return;
+  }
+
+  attachSpecialPhotoInputs(form);
+
+  // Typing in an "Other" box should select it, the same way tapping the option does.
+  form.querySelectorAll('[data-special-other-input]').forEach((otherInput) => {
+    otherInput.addEventListener('input', () => {
+      const toggle = otherInput.closest('.special-public-choice').querySelector('[data-special-other-toggle]');
+
+      if (toggle && otherInput.value.trim()) {
+        toggle.checked = true;
+      }
+    });
+    otherInput.addEventListener('click', (event) => {
+      event.stopPropagation();
+    });
+  });
+
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const status = document.getElementById('publicFormStatus');
+    const submitButton = form.querySelector('button[type="submit"]');
+    const submitLabel = (eventData.specialForm && eventData.specialForm.submitLabel) || 'Submit';
+
+    setStatus(status, '', '');
+
+    let answers;
+
+    try {
+      answers = collectSpecialFormAnswers(form, eventData);
+    } catch (error) {
+      setStatus(status, error.message, 'is-error');
+      return;
+    }
+
+    try {
+      setButtonLoading(submitButton, true, 'Submitting...');
+      const result = await fetchJson(`/events/${eventData.eventId}/special-form`, {
+        method: 'POST',
+        body: { answers }
+      });
+
+      form.reset();
+      state.specialPhotoUploads = {};
+      form.querySelectorAll('[data-special-photo-preview]').forEach((preview) => {
+        preview.hidden = true;
+      });
+      form.querySelectorAll('[data-special-photo-status]').forEach((note) => {
+        note.textContent = '';
+      });
+      setStatus(status, result.message, 'is-success');
+      form.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    } catch (error) {
+      setStatus(status, error.message, 'is-error');
+    } finally {
+      setButtonLoading(submitButton, false, submitLabel);
+    }
+  });
 }
 
 function renderPublicGroupDeliveryPage(eventData, currentCycle = {}) {
@@ -5590,6 +7132,18 @@ function renderTable(columns, rows, mode = '') {
 function renderResponseCell(row, column, mode = '') {
   const value = row[column] || '';
 
+  if (mode === 'special-form' && column === 'Timestamp' && value) {
+    return escapeHtml(formatMetricDateTime(value) || value);
+  }
+
+  if (mode === 'special-form' && isSpecialPhotoReference(value)) {
+    return `
+      <button type="button" class="special-photo-view-button" data-view-special-photo="${escapeAttribute(value)}">
+        View photo
+      </button>
+    `;
+  }
+
   if (mode === 'celavive-raffle' && column === 'Prospect Score' && value !== '') {
     return `
       <button
@@ -6002,12 +7556,13 @@ function renderSelectedEventQuickPanel(eventData) {
   const isCelaviveRaffle = isCelaviveRaffleEvent(eventData);
   const isWellnessQuiz = isWellnessQuizEvent(eventData);
   const isGroupDelivery = isGroupDeliveryEvent(eventData);
+  const isSpecial = isSpecialEvent(eventData);
 
   return `
     <div class="selected-event-quick-panel">
       <span class="section-kicker">Selected event</span>
       <div class="selected-event-summary">
-        <strong>${escapeHtml(eventData.eventType)}</strong>
+        <strong>${escapeHtml(isSpecial ? getSpecialEventTitle(eventData) : eventData.eventType)}</strong>
       </div>
       <div class="selected-event-facts">
         <span>${escapeHtml(eventData.displayDateTime)}</span>
@@ -6046,6 +7601,17 @@ function renderSelectedEventQuickPanel(eventData) {
                 <a href="/events/${encodeURIComponent(eventData.eventId)}/wellness-quiz-responses" data-link class="button-link button-link-secondary">
                   <span class="selected-event-action-icon">${renderEventActionIcon('responses')}</span>
                   <span>Quiz Responses</span>
+                </a>
+              `
+            : isSpecial
+              ? `
+                <a href="${escapeAttribute(eventData.specialFormPath)}" target="_blank" rel="noreferrer" class="button-link button-link-secondary">
+                  <span class="selected-event-action-icon">${renderEventActionIcon('external')}</span>
+                  <span>Open Form</span>
+                </a>
+                <a href="/events/${encodeURIComponent(eventData.eventId)}/special-form-responses" data-link class="button-link button-link-secondary">
+                  <span class="selected-event-action-icon">${renderEventActionIcon('responses')}</span>
+                  <span>Form Responses</span>
                 </a>
               `
             : isGroupDelivery
@@ -6199,6 +7765,18 @@ function isGroupDeliveryEvent(eventData) {
 
 function isStandardRsvpEvent(eventData) {
   return STANDARD_RSVP_EVENT_TYPES.includes(String(eventData && eventData.eventType ? eventData.eventType : '').trim());
+}
+
+function isSpecialPhotoReference(value) {
+  return /^pho_[0-9a-f]{20}$/.test(String(value || '').trim());
+}
+
+function isSpecialEvent(eventData) {
+  return String(eventData && eventData.eventType ? eventData.eventType : '').trim() === SPECIAL_EVENT_TYPE;
+}
+
+function getSpecialEventTitle(eventData) {
+  return (eventData && (eventData.specialEventDisplayName || eventData.specialEventName)) || SPECIAL_EVENT_TYPE;
 }
 
 function getEventTypeDisplayLabel(type) {
@@ -6958,6 +8536,10 @@ function getResponseModeLabel(mode) {
 
   if (mode === 'wellness-quiz') {
     return 'Wellness Quiz';
+  }
+
+  if (mode === 'special-form') {
+    return 'form';
   }
 
   return 'event';

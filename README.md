@@ -67,6 +67,42 @@ If the homepage shows a 404 on Netlify, it usually means the site was deployed b
 - The app automatically creates a `Registrations` tab if it does not exist.
 - The header row is added automatically the first time the app writes to the sheet.
 
+## Special Events (build your own form)
+
+Pick **Special Event** as the event type to name the event yourself — GeneSys Circle,
+GeneSys Anniversary, Awarding Night, anything — and build its form block by block.
+
+Available blocks:
+
+- Short answer, paragraph, email, mobile number, number, date, time
+- Multiple choice, checkboxes, dropdown, poll (all with your own options)
+- Rating scale (1 to 3, 5, 7, or 10)
+- Photo upload — the respondent attaches a photo (max 3 per form)
+- Section heading (text only)
+- Image (display) — a picture *you* show on the form
+
+Multiple choice and checkbox blocks can offer an "Other" box. Every question can be
+marked required.
+
+A Special Event publishes one public page at `/special-event/<slug>` plus its QR code.
+It does not create RSVP or attendance pages.
+
+Responses land in their own sheet/table named after the event, one column per question.
+You can keep editing the form after it goes live: **renaming or deleting a question never
+touches answers already collected** — the old column stays put and new questions are
+appended as new columns. Use the *Accept new responses* toggle to close the form.
+
+Photos are shrunk in the browser before upload, both the ones you add to the form and
+the ones respondents submit. Submitted photos are stored one per table and referenced
+from the response row by id, so opening the response log never downloads every picture —
+click **View photo** on a row to fetch just that one.
+
+Form images are stored in a separate per-event table, so the event record itself stays
+small and the dashboard stays fast.
+
+Note: `lib/platform.js` is loaded once at boot, so **restart `npm start` after pulling
+changes**. A stale server shows errors like `Block 4 uses an unsupported type`.
+
 ## Firebase / Firestore backend
 
 The app can use Firestore as the primary backend instead of Google Sheets.
