@@ -23,7 +23,11 @@
 }
 
 @media (min-width: 1281px) {
-  .event-detail-layout.has-wellness-raffle .detail-main-stack {
+  /* The main column is normally a single full-height row. Layouts that stack a
+     second panel under the hero need both rows sized to content and the column
+     itself scrollable, or that second panel is pushed out of view. */
+  .event-detail-layout.has-wellness-raffle .detail-main-stack,
+  .event-detail-layout.has-special-form .detail-main-stack {
     grid-template-rows: max-content max-content;
     align-content: start;
     overflow-y: auto;
@@ -33,7 +37,9 @@
   }
 
   .event-detail-layout.has-wellness-raffle .detail-hero,
-  .event-detail-layout.has-wellness-raffle .wellness-raffle-editor {
+  .event-detail-layout.has-wellness-raffle .wellness-raffle-editor,
+  .event-detail-layout.has-special-form .detail-hero,
+  .event-detail-layout.has-special-form .special-form-editor {
     height: auto;
     overflow: visible;
     flex: none;
@@ -8298,4 +8304,166 @@ textarea {
   width: auto;
   min-height: 44px;
   padding: 0 20px;
+}
+
+/* Payment settings (admin) and the payment step (public) */
+
+.special-payment-settings {
+  display: grid;
+  gap: 16px;
+  padding: 20px;
+  border: 1px solid rgba(202, 213, 232, 0.92);
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.special-payment-fields {
+  display: grid;
+  gap: 16px;
+}
+
+.special-payment-methods {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.special-header-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.admin-page .special-header-actions .button-link {
+  width: auto;
+  min-height: 40px;
+  padding: 0 18px;
+  font-size: 0.82rem;
+}
+
+.special-header-preview {
+  max-width: 420px;
+}
+
+.payment-status-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+.payment-status-pill.is-paid {
+  color: #12603f;
+  background: rgba(40, 116, 81, 0.14);
+}
+
+.payment-status-pill.is-pending {
+  color: #8a5a12;
+  background: rgba(214, 158, 46, 0.18);
+}
+
+.payment-status-pill.is-cancelled {
+  color: var(--danger);
+  background: rgba(187, 69, 65, 0.12);
+}
+
+.admin-page .response-payment-button {
+  width: auto;
+  min-height: 34px;
+  padding: 0 14px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.special-payment-stage {
+  display: grid;
+  gap: 16px;
+}
+
+.special-payment-lede {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.special-payment-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 0;
+  padding: 16px;
+  border-radius: var(--radius-md);
+  background: rgba(215, 104, 175, 0.08);
+}
+
+.special-payment-summary > div {
+  display: grid;
+  gap: 2px;
+  min-width: 140px;
+}
+
+.special-payment-summary dt {
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #8a6f9c;
+}
+
+.special-payment-summary dd {
+  margin: 0;
+  font-size: 1.02rem;
+  font-weight: 800;
+}
+
+.special-payment-summary-wide > div {
+  min-width: 46%;
+}
+
+.special-payment-reference {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.06em;
+}
+
+.special-payment-qr {
+  display: flex;
+  justify-content: center;
+  padding: 16px;
+  border-radius: var(--radius-md);
+  background: #ffffff;
+  border: 1px solid rgba(218, 198, 230, 0.84);
+}
+
+.special-payment-qr img {
+  width: 100%;
+  max-width: 280px;
+  border-radius: var(--radius-sm);
+}
+
+.special-payment-note {
+  margin: 0;
+  line-height: 1.6;
+  font-size: 0.9rem;
+}
+
+.special-payment-note-muted {
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+@media (max-width: 720px) {
+  .special-payment-settings {
+    padding: 16px;
+  }
+
+  .special-payment-summary-wide > div {
+    min-width: 100%;
+  }
 }

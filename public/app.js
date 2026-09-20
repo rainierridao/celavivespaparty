@@ -34,6 +34,17 @@ const SPECIAL_FORM_DISPLAY_TYPES = ['heading', 'image'];
 const SPECIAL_FORM_MAX_IMAGE_DIMENSION = 1400;
 const SPECIAL_FORM_MAX_IMAGE_CHARS = 600 * 1024;
 const SPECIAL_FORM_MAX_PHOTO_CHARS = 900 * 1024;
+const SPECIAL_PAYMENT_METHODS = ['GCash', 'Maya', 'Bank Transfer', 'Cash on site'];
+const DEFAULT_SPECIAL_PAYMENT = {
+  enabled: false,
+  amount: '',
+  currency: 'PHP',
+  methods: ['GCash'],
+  accountName: '',
+  accountNumber: '',
+  instructions: '',
+  qrImageId: ''
+};
 const SPECIAL_FORM_RESERVED_COLUMNS = [
   '__rowNumber',
   'Timestamp',
@@ -2367,8 +2378,34 @@ function attachSpecialFormEditorHandlers(eventData) {
         field.imageId = savedField.imageId;
       });
 
+      const savedForm = (result.event && result.event.specialForm) || {};
+
+      if (savedForm.headerImageId) {
+        if (draft.headerImageDataUrl) {
+          draft.images[savedForm.headerImageId] = draft.headerImageDataUrl;
+          draft.headerImageDataUrl = '';
+        }
+
+        draft.headerImageId = savedForm.headerImageId;
+      } else {
+        draft.headerImageId = '';
+      }
+
+      refreshSpecialHeaderSlot(builder);
+      const savedPayment = (result.event && result.event.specialPayment) || {};
+
+      if (savedPayment.qrImageId) {
+        if (draft.payment.qrDataUrl) {
+          draft.images[savedPayment.qrImageId] = draft.payment.qrDataUrl;
+          draft.payment.qrDataUrl = '';
+        }
+
+        draft.payment.qrImageId = savedPayment.qrImageId;
+      }
+
       Object.assign(eventData, result.event);
       refreshSpecialFormBlocks(builder);
+      refreshSpecialPaymentSettings(builder);
       syncDynamicHeaderTitle();
       setStatus(status, result.message, 'is-success');
     } catch (error) {
@@ -2903,6 +2940,39 @@ function attachInBodyResponseHandlers(eventData) {
 }
 
 function attachResponseDeleteHandlers(eventData, mode) {
+  document.querySelectorAll('[data-toggle-payment]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const reference = button.getAttribute('data-payment-reference');
+      const shouldMarkPaid = button.getAttribute('data-payment-paid') === 'true';
+      const responseName = button.getAttribute('data-response-name') || 'this entry';
+      const status = document.getElementById('responseActionStatus');
+      const confirmed = await showConfirmModal({
+        title: shouldMarkPaid ? 'Confirm this payment?' : 'Move back to pending?',
+        message: shouldMarkPaid
+          ? `Only do this once you have seen the payment land in your account. ${responseName} will get a confirmation email.`
+          : `${responseName} will be marked unpaid again. No email is sent.`,
+        confirmLabel: shouldMarkPaid ? 'Mark Paid' : 'Mark Unpaid'
+      });
+
+      if (!confirmed) {
+        return;
+      }
+
+      try {
+        setButtonLoading(button, true, shouldMarkPaid ? 'Confirming...' : 'Updating...');
+        const result = await fetchJson(
+          `/events/${eventData.eventId}/special-payments/${encodeURIComponent(reference)}`,
+          { method: 'PATCH', body: { paid: shouldMarkPaid } }
+        );
+        setStatus(status, result.message, 'is-success');
+        await renderRoute();
+      } catch (error) {
+        setStatus(status, error.message, 'is-error');
+        setButtonLoading(button, false, shouldMarkPaid ? 'Mark Paid' : 'Mark Unpaid');
+      }
+    });
+  });
+
   document.querySelectorAll('[data-reset-wellness-spin]').forEach((button) => {
     button.addEventListener('click', async () => {
       const rowNumber = button.getAttribute('data-row-number');
@@ -3775,12 +3845,22 @@ function initSpecialFormDraft(eventData = {}, images = {}) {
     description: form.description || '',
     submitLabel: form.submitLabel || 'Submit',
     successMessage: form.successMessage || 'Thank you! Your response has been recorded.',
+    headerImageId: form.headerImageId || '',
+    headerImageDataUrl: '',
     accepting: eventData.specialFormAccepting !== false,
     fields: (form.fields || []).map((field) => ({
       ...field,
       options: Array.isArray(field.options) ? field.options.slice() : undefined
     })),
-    images: { ...images }
+    images: { ...images },
+    payment: {
+      ...DEFAULT_SPECIAL_PAYMENT,
+      ...(eventData.specialPayment || {}),
+      methods: Array.isArray((eventData.specialPayment || {}).methods) && eventData.specialPayment.methods.length
+        ? eventData.specialPayment.methods.slice()
+        : DEFAULT_SPECIAL_PAYMENT.methods.slice(),
+      qrDataUrl: ''
+    }
   };
 
   return state.specialForm;
@@ -3792,6 +3872,11 @@ function getSpecialFormDraft() {
   }
 
   return state.specialForm;
+}
+
+function getSpecialHeaderPreviewSrc() {
+  const draft = getSpecialFormDraft();
+  return draft.headerImageDataUrl || (draft.headerImageId ? draft.images[draft.headerImageId] || '' : '');
 }
 
 function getSpecialFieldPreviewSrc(field) {
@@ -3831,6 +3916,29 @@ function syncSpecialFormDraftFromDom(root) {
 
   if (acceptingInput) {
     draft.accepting = acceptingInput.checked;
+  }
+
+  const paymentEnabled = root.querySelector('[data-payment-enabled]');
+
+  if (paymentEnabled) {
+    const payment = draft.payment;
+    payment.enabled = paymentEnabled.checked;
+
+    const readValue = (selector, key) => {
+      const input = root.querySelector(selector);
+
+      if (input) {
+        payment[key] = input.value;
+      }
+    };
+
+    readValue('[data-payment-amount]', 'amount');
+    readValue('[data-payment-account-name]', 'accountName');
+    readValue('[data-payment-account-number]', 'accountNumber');
+    readValue('[data-payment-instructions]', 'instructions');
+    payment.methods = Array.from(root.querySelectorAll('[data-payment-method]:checked')).map(
+      (input) => input.value
+    );
   }
 
   root.querySelectorAll('[data-special-block]').forEach((blockEl) => {
@@ -3877,13 +3985,30 @@ function syncSpecialFormDraftFromDom(root) {
 function buildSpecialFormPayload(root) {
   const draft = syncSpecialFormDraftFromDom(root);
 
+  const payment = {
+    enabled: Boolean(draft.payment.enabled),
+    amount: String(draft.payment.amount || '').trim(),
+    methods: draft.payment.methods.slice(),
+    accountName: String(draft.payment.accountName || '').trim(),
+    accountNumber: String(draft.payment.accountNumber || '').trim(),
+    instructions: String(draft.payment.instructions || '').trim(),
+    qrImageId: draft.payment.qrImageId || ''
+  };
+
+  if (draft.payment.qrDataUrl) {
+    payment.qrDataUrl = draft.payment.qrDataUrl;
+  }
+
   return {
     specialEventName: draft.name.trim(),
     specialFormAccepting: draft.accepting,
+    specialPayment: payment,
     specialForm: {
       description: draft.description.trim(),
       submitLabel: draft.submitLabel.trim() || 'Submit',
       successMessage: draft.successMessage.trim(),
+      headerImageId: draft.headerImageId || '',
+      ...(draft.headerImageDataUrl ? { headerImageDataUrl: draft.headerImageDataUrl } : {}),
       fields: draft.fields.map((field) => {
         const payload = {
           fieldId: field.fieldId,
@@ -3988,6 +4113,27 @@ function renderSpecialFormBuilder({ showAccepting = false } = {}) {
           placeholder="Tell attendees what this form is for."
         >${escapeHtml(draft.description)}</textarea>
       </div>
+      <div class="field full" data-special-header>
+        <span class="field-label">Header Photo</span>
+        <div class="special-image-slot">
+          ${
+            getSpecialHeaderPreviewSrc()
+              ? `<img class="special-image-preview special-header-preview" src="${escapeAttribute(getSpecialHeaderPreviewSrc())}" alt="Form header photo">`
+              : '<div class="special-image-placeholder">Using the default GeneSys photos. Upload your own to replace them.</div>'
+          }
+          <div class="special-header-actions">
+            <button type="button" class="button-link button-link-secondary" data-upload-header-image>
+              ${getSpecialHeaderPreviewSrc() ? 'Replace photo' : 'Upload photo'}
+            </button>
+            ${
+              getSpecialHeaderPreviewSrc()
+                ? '<button type="button" class="button-link button-link-secondary" data-remove-header-image>Use default</button>'
+                : ''
+            }
+          </div>
+        </div>
+        <span class="field-help">Shown as the big picture at the top of your public form.</span>
+      </div>
       <div class="field full">
         <label for="specialSuccessMessage">Thank-you Message</label>
         <input
@@ -4034,8 +4180,117 @@ function renderSpecialFormBuilder({ showAccepting = false } = {}) {
           ).join('')}
         </div>
       </div>
+      ${showAccepting ? renderSpecialPaymentSettings() : ''}
       <input type="file" accept="image/*" data-special-image-input hidden>
+      <input type="file" accept="image/*" data-payment-qr-input hidden>
+      <input type="file" accept="image/*" data-header-image-input hidden>
     </div>
+  `;
+}
+
+function renderSpecialPaymentSettings() {
+  const payment = getSpecialFormDraft().payment;
+  const qrSrc = payment.qrDataUrl || (payment.qrImageId ? getSpecialFormDraft().images[payment.qrImageId] || '' : '');
+
+  return `
+    <section class="special-payment-settings" data-special-payment>
+      <div class="special-builder-head">
+        <div>
+          <span class="section-kicker">Payment</span>
+          <h3>Collect payment for this event</h3>
+          <p>Respondents get your QR on screen and by email after they submit, then you confirm each payment here.</p>
+        </div>
+      </div>
+
+      <label class="special-accepting-toggle">
+        <input type="checkbox" data-payment-enabled ${payment.enabled ? 'checked' : ''}>
+        <span>Ask for payment after the form is submitted</span>
+      </label>
+
+      <div class="special-payment-fields" data-payment-fields ${payment.enabled ? '' : 'hidden'}>
+        <div class="grid special-builder-meta">
+          <div class="field">
+            <label for="specialPaymentAmount">Amount in PHP <span class="required">*</span></label>
+            <input
+              id="specialPaymentAmount"
+              type="text"
+              inputmode="decimal"
+              data-payment-amount
+              placeholder="500"
+              value="${escapeAttribute(payment.amount || '')}"
+            >
+          </div>
+          <div class="field">
+            <label for="specialPaymentAccountName">Account Name</label>
+            <input
+              id="specialPaymentAccountName"
+              type="text"
+              maxlength="120"
+              data-payment-account-name
+              placeholder="Juana Dela Cruz"
+              value="${escapeAttribute(payment.accountName || '')}"
+            >
+          </div>
+        </div>
+
+        <div class="field full">
+          <span class="field-label">Payment Methods <span class="required">*</span></span>
+          <div class="special-payment-methods">
+            ${SPECIAL_PAYMENT_METHODS.map(
+              (method) => `
+                <label class="special-inline-toggle">
+                  <input type="checkbox" data-payment-method value="${escapeAttribute(method)}" ${payment.methods.includes(method) ? 'checked' : ''}>
+                  <span>${escapeHtml(method)}</span>
+                </label>
+              `
+            ).join('')}
+          </div>
+        </div>
+
+        <div class="field full">
+          <label for="specialPaymentAccountNumber">Account / Mobile Number</label>
+          <input
+            id="specialPaymentAccountNumber"
+            type="text"
+            maxlength="60"
+            data-payment-account-number
+            placeholder="0917 123 4567"
+            value="${escapeAttribute(payment.accountNumber || '')}"
+          >
+        </div>
+
+        <div class="field full">
+          <label for="specialPaymentInstructions">Payment Instructions</label>
+          <textarea
+            id="specialPaymentInstructions"
+            maxlength="600"
+            data-payment-instructions
+            placeholder="Send a screenshot of your receipt to our Facebook page after paying."
+          >${escapeHtml(payment.instructions || '')}</textarea>
+        </div>
+
+        <div class="field full">
+          <span class="field-label">Payment QR Code <span class="required">*</span></span>
+          <div class="special-image-slot">
+            ${
+              qrSrc
+                ? `<img class="special-image-preview" src="${escapeAttribute(qrSrc)}" alt="Payment QR code">`
+                : '<div class="special-image-placeholder">Upload the QR code from your GCash app.</div>'
+            }
+            <button type="button" class="button-link button-link-secondary" data-upload-payment-qr>
+              ${qrSrc ? 'Replace QR code' : 'Upload QR code'}
+            </button>
+          </div>
+          <span class="field-help">In GCash, open <strong>QR</strong> then save or screenshot your personal QR, and upload it here.</span>
+        </div>
+
+        <p class="special-form-note">
+          GCash cannot tell this app when money arrives, so payments are not confirmed automatically.
+          Check your GCash app, then press <strong>Mark Paid</strong> on the response row &mdash; that sends
+          the payer their confirmation email.
+        </p>
+      </div>
+    </section>
   `;
 }
 
@@ -4174,6 +4429,54 @@ function renderSpecialFormOptionRow(option, index) {
 
 // Callers sync the draft from the DOM themselves before mutating it. Re-syncing
 // here would read the stale DOM back over the change that was just made.
+// Redraws only the payment card, so the question blocks keep their focus and
+// any half-typed text.
+function refreshSpecialHeaderSlot(root) {
+  const slot = root && root.querySelector('[data-special-header]');
+
+  if (!slot) {
+    return;
+  }
+
+  const preview = getSpecialHeaderPreviewSrc();
+  const imageHtml = preview
+    ? `<img class="special-image-preview special-header-preview" src="${escapeAttribute(preview)}" alt="Form header photo">`
+    : '<div class="special-image-placeholder">Using the default GeneSys photos. Upload your own to replace them.</div>';
+
+  slot.querySelector('.special-image-slot').innerHTML = `
+    ${imageHtml}
+    <div class="special-header-actions">
+      <button type="button" class="button-link button-link-secondary" data-upload-header-image>
+        ${preview ? 'Replace photo' : 'Upload photo'}
+      </button>
+      ${preview ? '<button type="button" class="button-link button-link-secondary" data-remove-header-image>Use default</button>' : ''}
+    </div>
+  `;
+}
+
+function refreshSpecialPaymentSettings(root) {
+  if (!root) {
+    return;
+  }
+
+  const panel = root.querySelector('[data-special-payment]');
+
+  if (!panel) {
+    return;
+  }
+
+  syncSpecialFormDraftFromDom(root);
+  panel.outerHTML = renderSpecialPaymentSettings();
+  const nextEnabled = root.querySelector('[data-payment-enabled]');
+  const nextFields = root.querySelector('[data-payment-fields]');
+
+  if (nextEnabled && nextFields) {
+    nextEnabled.addEventListener('change', () => {
+      nextFields.hidden = !nextEnabled.checked;
+    });
+  }
+}
+
 function refreshSpecialFormBlocks(root) {
   if (!root) {
     return;
@@ -4192,7 +4495,92 @@ function attachSpecialFormBuilder(root, { onStatus } = {}) {
   }
 
   const imageInput = root.querySelector('[data-special-image-input]');
+  const paymentQrInput = root.querySelector('[data-payment-qr-input]');
+  const paymentEnabledInput = root.querySelector('[data-payment-enabled]');
+  const paymentFields = root.querySelector('[data-payment-fields]');
   let pendingImageFieldId = '';
+
+  if (paymentEnabledInput && paymentFields) {
+    paymentEnabledInput.addEventListener('change', () => {
+      paymentFields.hidden = !paymentEnabledInput.checked;
+    });
+  }
+
+  const headerImageInput = root.querySelector('[data-header-image-input]');
+
+  if (headerImageInput) {
+    root.addEventListener('click', (event) => {
+      if (event.target.closest('[data-upload-header-image]')) {
+        syncSpecialFormDraftFromDom(root);
+        headerImageInput.value = '';
+        headerImageInput.click();
+        return;
+      }
+
+      if (event.target.closest('[data-remove-header-image]')) {
+        syncSpecialFormDraftFromDom(root);
+        const draft = getSpecialFormDraft();
+        draft.headerImageDataUrl = '';
+        draft.headerImageId = '';
+        refreshSpecialHeaderSlot(root);
+        report('Header reset to the default photos. Remember to save.', 'is-success');
+      }
+    });
+
+    headerImageInput.addEventListener('change', async () => {
+      const file = headerImageInput.files && headerImageInput.files[0];
+
+      if (!file) {
+        return;
+      }
+
+      try {
+        report('Preparing header photo...', '');
+        const dataUrl = await compressImageFile(file);
+        const draft = getSpecialFormDraft();
+        draft.headerImageDataUrl = dataUrl;
+        draft.headerImageId = '';
+        refreshSpecialHeaderSlot(root);
+        report('Header photo ready. Remember to save.', 'is-success');
+      } catch (error) {
+        report(error.message || 'That photo could not be read.', 'is-error');
+      } finally {
+        headerImageInput.value = '';
+      }
+    });
+  }
+
+  if (paymentQrInput) {
+    root.addEventListener('click', (event) => {
+      if (event.target.closest('[data-upload-payment-qr]')) {
+        syncSpecialFormDraftFromDom(root);
+        paymentQrInput.value = '';
+        paymentQrInput.click();
+      }
+    });
+
+    paymentQrInput.addEventListener('change', async () => {
+      const file = paymentQrInput.files && paymentQrInput.files[0];
+
+      if (!file) {
+        return;
+      }
+
+      try {
+        report('Preparing QR code...', '');
+        const dataUrl = await compressImageFile(file);
+        const draft = getSpecialFormDraft();
+        draft.payment.qrDataUrl = dataUrl;
+        draft.payment.qrImageId = '';
+        refreshSpecialPaymentSettings(root);
+        report('QR code ready. Remember to save.', 'is-success');
+      } catch (error) {
+        report(error.message || 'That QR image could not be read.', 'is-error');
+      } finally {
+        paymentQrInput.value = '';
+      }
+    });
+  }
 
   const report = (message, className) => {
     if (typeof onStatus === 'function') {
@@ -4454,7 +4842,7 @@ function renderEventDetailPage(eventData, previews = {}) {
     headerDetails: renderEventHeaderControls(eventData),
     headerControls: renderHeaderBackLink(eventData.isArchived ? '/events/archive' : '/dashboard', eventData.isArchived ? 'Back to archive' : 'Back to dashboard'),
     content: `
-      <section class="editor-grid event-detail-layout${eventData.isArchived ? ' is-archived' : ' is-active'}${isWellnessQuiz ? ' has-wellness-raffle' : ''}">
+      <section class="editor-grid event-detail-layout${eventData.isArchived ? ' is-archived' : ' is-active'}${isWellnessQuiz ? ' has-wellness-raffle' : ''}${isSpecial ? ' has-special-form' : ''}">
         <div class="detail-main-stack">
           <section class="workspace-panel workspace-panel-large detail-hero">
             <div class="detail-hero-head">
@@ -5824,6 +6212,8 @@ function renderPublicSpecialEventPage(eventData, images = {}) {
   const title = getSpecialEventTitle(eventData);
   const isOpen = eventData.specialFormAccepting !== false;
   const hasQuestions = (form.fields || []).some((field) => !SPECIAL_FORM_DISPLAY_TYPES.includes(field.type));
+  // A custom header photo replaces the rotating default gallery entirely.
+  const headerImage = form.headerImageId ? images[form.headerImageId] || '' : '';
 
   return `
     <div class="page public-page">
@@ -5836,14 +6226,18 @@ function renderPublicSpecialEventPage(eventData, images = {}) {
           <div class="public-hero-gallery">
             <div class="public-slideshow-frame">
               <img class="public-slideshow-mark" src="/assets/logo/Genesys_Logo2.svg" alt="">
-              <img id="publicHeroSlideshowImage" class="public-slideshow-image" src="${publicCelaviveSlides[0]}" alt="Event gallery" data-slideshow="celavive">
+              ${
+                headerImage
+                  ? `<img class="public-slideshow-image" src="${escapeAttribute(headerImage)}" alt="${escapeAttribute(title)}">`
+                  : `<img id="publicHeroSlideshowImage" class="public-slideshow-image" src="${publicCelaviveSlides[0]}" alt="Event gallery" data-slideshow="celavive">`
+              }
               <div class="public-slideshow-overlay">
                 <div class="public-slideshow-copy">
                   <span>${escapeHtml(title)}</span>
                   <strong>${escapeHtml(eventData.location)}</strong>
                   <em>${escapeHtml(eventDateTime)}</em>
                 </div>
-                <div id="publicHeroSlideshowDots" class="public-slideshow-dots" aria-hidden="true"></div>
+                ${headerImage ? '' : '<div id="publicHeroSlideshowDots" class="public-slideshow-dots" aria-hidden="true"></div>'}
               </div>
             </div>
           </div>
@@ -5857,6 +6251,7 @@ function renderPublicSpecialEventPage(eventData, images = {}) {
                     <span class="section-kicker">Event form</span>
                     <h2>${escapeHtml(title)}</h2>
                   </div>
+                  <div id="specialFormStage">
                   <form id="publicSpecialForm" class="modern-form special-public-form">
                     ${(form.fields || []).map((field) => renderSpecialFormPublicField(field, images)).join('')}
                     <div class="form-submit-row">
@@ -5864,6 +6259,7 @@ function renderPublicSpecialEventPage(eventData, images = {}) {
                       <div id="publicFormStatus" class="status" aria-live="polite"></div>
                     </div>
                   </form>
+                  </div>
                 `
                 : `
                   <div class="panel-head">
@@ -6120,6 +6516,143 @@ function collectSpecialFormAnswers(form, eventData) {
   return answers;
 }
 
+function renderSpecialPaymentStage(eventData, payment) {
+  const methods = payment.methods || [];
+
+  return `
+    <div class="special-payment-stage">
+      <div class="panel-head">
+        <span class="section-kicker">Step 2 of 2</span>
+        <h2>Complete your payment</h2>
+      </div>
+      <p class="special-payment-lede">
+        Your entry is saved. Choose how you want to pay and where we should send your QR code.
+      </p>
+      <dl class="special-payment-summary">
+        <div>
+          <dt>Amount</dt>
+          <dd>${escapeHtml(payment.amount || '')}</dd>
+        </div>
+        <div>
+          <dt>Reference code</dt>
+          <dd class="special-payment-reference">${escapeHtml(payment.reference || '')}</dd>
+        </div>
+      </dl>
+      <form id="specialPaymentForm" class="modern-form">
+        <div class="field full">
+          <label for="specialPaymentMethod">Payment Method <span class="required">*</span></label>
+          <select id="specialPaymentMethod" name="method" required>
+            ${methods.length > 1 ? '<option value="">Select a payment method</option>' : ''}
+            ${methods.map((method) => `<option value="${escapeAttribute(method)}">${escapeHtml(method)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="field full">
+          <label for="specialPaymentEmail">Email Address <span class="required">*</span></label>
+          <input id="specialPaymentEmail" name="emailAddress" type="email" inputmode="email" required placeholder="you@example.com">
+          <span class="field-help">We will send your payment QR and the confirmation here.</span>
+        </div>
+        <div class="form-submit-row">
+          <button type="submit">Get my payment QR</button>
+          <div id="specialPaymentStatus" class="status" aria-live="polite"></div>
+        </div>
+      </form>
+    </div>
+  `;
+}
+
+function renderSpecialPaymentQrStage(eventData, result) {
+  const rows = [
+    ['Amount', result.amount],
+    ['Method', result.method],
+    ['Reference code', result.reference],
+    ['Account name', result.accountName],
+    ['Account number', result.accountNumber]
+  ].filter(([, value]) => String(value || '').trim());
+
+  return `
+    <div class="special-payment-stage">
+      <div class="panel-head">
+        <span class="section-kicker">Almost done</span>
+        <h2>Scan to pay</h2>
+      </div>
+      ${
+        result.qrDataUrl
+          ? `
+            <div class="special-payment-qr">
+              <img src="${escapeAttribute(result.qrDataUrl)}" alt="Payment QR code">
+            </div>
+          `
+          : '<p class="special-payment-lede">Please pay on site when you arrive.</p>'
+      }
+      <dl class="special-payment-summary special-payment-summary-wide">
+        ${rows
+          .map(
+            ([label, value]) => `
+              <div>
+                <dt>${escapeHtml(label)}</dt>
+                <dd${label === 'Reference code' ? ' class="special-payment-reference"' : ''}>${escapeHtml(value)}</dd>
+              </div>
+            `
+          )
+          .join('')}
+      </dl>
+      <p class="special-payment-note">
+        Put your reference code <strong>${escapeHtml(result.reference || '')}</strong> in the payment notes so we
+        can match it to your entry.
+      </p>
+      ${result.instructions ? `<p class="special-payment-note">${escapeHtml(result.instructions)}</p>` : ''}
+      <p class="special-payment-note special-payment-note-muted">
+        ${escapeHtml(result.emailMessage || '')}
+        You will receive a confirmation email once your payment has been checked.
+      </p>
+    </div>
+  `;
+}
+
+function attachSpecialPaymentHandlers(eventData, payment) {
+  const stage = document.getElementById('specialFormStage');
+
+  if (!stage) {
+    return;
+  }
+
+  stage.innerHTML = renderSpecialPaymentStage(eventData, payment);
+  stage.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+  const form = document.getElementById('specialPaymentForm');
+
+  if (!form) {
+    return;
+  }
+
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const status = document.getElementById('specialPaymentStatus');
+    const submitButton = form.querySelector('button[type="submit"]');
+
+    setStatus(status, '', '');
+
+    try {
+      setButtonLoading(submitButton, true, 'Preparing...');
+      const result = await fetchJson(`/events/${eventData.eventId}/special-form/payment`, {
+        method: 'POST',
+        body: {
+          reference: payment.reference,
+          method: form.method.value,
+          emailAddress: form.emailAddress.value
+        }
+      });
+
+      stage.innerHTML = renderSpecialPaymentQrStage(eventData, result);
+      stage.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } catch (error) {
+      setStatus(status, error.message, 'is-error');
+    } finally {
+      setButtonLoading(submitButton, false, 'Get my payment QR');
+    }
+  });
+}
+
 function attachSpecialPhotoInputs(form) {
   form.querySelectorAll('[data-special-field][data-special-type="photo-upload"]').forEach((wrapper) => {
     const fieldId = wrapper.dataset.specialField;
@@ -6243,6 +6776,11 @@ function attachSpecialEventFormHandlers(eventData) {
         method: 'POST',
         body: { answers }
       });
+
+      if (result.payment && result.payment.required) {
+        attachSpecialPaymentHandlers(eventData, result.payment);
+        return;
+      }
 
       form.reset();
       state.specialPhotoUploads = {};
@@ -7136,6 +7674,11 @@ function renderResponseCell(row, column, mode = '') {
     return escapeHtml(formatMetricDateTime(value) || value);
   }
 
+  if (mode === 'special-form' && column === 'Payment Status' && value) {
+    const tone = value === 'Paid' ? 'is-paid' : value === 'Cancelled' ? 'is-cancelled' : 'is-pending';
+    return `<span class="payment-status-pill ${tone}">${escapeHtml(value)}</span>`;
+  }
+
   if (mode === 'special-form' && isSpecialPhotoReference(value)) {
     return `
       <button type="button" class="special-photo-view-button" data-view-special-photo="${escapeAttribute(value)}">
@@ -7169,7 +7712,23 @@ function renderResponseRowActions(row, mode) {
     return '';
   }
 
+  const paymentReference = String(row['Payment Reference'] || '').trim();
+  const paymentStatus = String(row['Payment Status'] || '').trim();
+  const paymentAction = paymentReference
+    ? `
+      <button
+        type="button"
+        class="button-link button-link-secondary response-payment-button"
+        data-toggle-payment
+        data-payment-reference="${escapeAttribute(paymentReference)}"
+        data-payment-paid="${paymentStatus === 'Paid' ? 'false' : 'true'}"
+        data-response-name="${escapeAttribute(responseName)}"
+      >${paymentStatus === 'Paid' ? 'Mark Unpaid' : 'Mark Paid'}</button>
+    `
+    : '';
+
   return `
+    ${paymentAction}
     ${mode === 'wellness-quiz' && row['Spin Token'] ? `
       <button
         type="button"

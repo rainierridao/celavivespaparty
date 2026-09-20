@@ -81,6 +81,9 @@ Available blocks:
 - Section heading (text only)
 - Image (display) — a picture *you* show on the form
 
+You can also upload a **header photo** in the form builder to replace the default
+GeneSys photos at the top of your public form.
+
 Multiple choice and checkbox blocks can offer an "Other" box. Every question can be
 marked required.
 
@@ -102,6 +105,51 @@ small and the dashboard stays fast.
 
 Note: `lib/platform.js` is loaded once at boot, so **restart `npm start` after pulling
 changes**. A stale server shows errors like `Block 4 uses an unsupported type`.
+
+## Email setup (Gmail)
+
+Payment QR emails, payment confirmations, and password resets all send through Gmail
+using an **app password** (not your normal Gmail password).
+
+1. Turn on 2-Step Verification at <https://myaccount.google.com/security>
+2. Go to <https://myaccount.google.com/apppasswords>
+3. Create an app password named e.g. `GeneSys Events` and copy the 16 characters
+4. Add to `.env` (and to Netlify environment variables when deployed):
+
+```bash
+GMAIL_USER=yourname@gmail.com
+GMAIL_APP_PASSWORD=abcdefghijklmnop
+EMAIL_FROM_NAME=GeneSysPH Events
+```
+
+5. Restart the app
+
+Until this is set, nothing is emailed: the app logs a warning and carries on, so
+form entries and payments are still recorded. Gmail allows roughly 500 emails a day.
+
+## Collecting payments on a Special Event
+
+Open the event, scroll to the **Form builder**, and turn on
+*Ask for payment after the form is submitted*. Set the amount, tick the methods you
+accept, and upload your GCash QR (in GCash: **QR** → save or screenshot your personal QR).
+
+What the respondent sees:
+
+1. They fill in and submit the form — the entry is saved immediately
+2. Step 2 appears: pick a payment method, enter an email address
+3. Your QR, the amount, and a unique reference code such as `AB12-CD34` appear on
+   screen and are emailed to them
+
+What you do:
+
+1. Check your GCash app for the payment (the reference code is in the payment notes)
+2. Open the response log and press **Mark Paid** on that row
+3. That sends their confirmation email and flips the row to Paid
+
+**Payments are not confirmed automatically.** GCash has no way to tell this app that
+money arrived, so the *Mark Paid* step is a real decision you make after seeing the
+payment. Only an integrated gateway (PayMongo, Xendit) could confirm automatically,
+and that needs a merchant account and per-transaction fees.
 
 ## Firebase / Firestore backend
 
