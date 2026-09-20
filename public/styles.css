@@ -3222,6 +3222,14 @@ textarea {
   transform: scale(1);
 }
 
+/* A custom header photo is a single static image: no slideshow script runs for
+   it, so it must not depend on .is-visible being added at runtime. */
+.public-slideshow-image.public-hero-custom-image {
+  opacity: 1;
+  transform: none;
+  transition: none;
+}
+
 .public-slideshow-overlay {
   position: absolute;
   inset: 0;

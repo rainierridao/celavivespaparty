@@ -6228,7 +6228,7 @@ function renderPublicSpecialEventPage(eventData, images = {}) {
               <img class="public-slideshow-mark" src="/assets/logo/Genesys_Logo2.svg" alt="">
               ${
                 headerImage
-                  ? `<img class="public-slideshow-image" src="${escapeAttribute(headerImage)}" alt="${escapeAttribute(title)}">`
+                  ? `<img class="public-slideshow-image public-hero-custom-image" src="${escapeAttribute(headerImage)}" alt="${escapeAttribute(title)}">`
                   : `<img id="publicHeroSlideshowImage" class="public-slideshow-image" src="${publicCelaviveSlides[0]}" alt="Event gallery" data-slideshow="celavive">`
               }
               <div class="public-slideshow-overlay">
