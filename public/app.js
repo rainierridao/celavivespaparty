@@ -2964,7 +2964,9 @@ function attachResponseDeleteHandlers(eventData, mode) {
           `/events/${eventData.eventId}/special-payments/${encodeURIComponent(reference)}`,
           { method: 'PATCH', body: { paid: shouldMarkPaid } }
         );
-        setStatus(status, result.message, 'is-success');
+        // Marking paid can succeed while the email does not; the server says which.
+        const tone = result.tone === 'error' ? 'is-error' : result.tone === 'warning' ? 'is-warning' : 'is-success';
+        setStatus(status, result.message, tone);
         await renderRoute();
       } catch (error) {
         setStatus(status, error.message, 'is-error');
@@ -4289,6 +4291,23 @@ function renderSpecialPaymentSettings() {
           Check your GCash app, then press <strong>Mark Paid</strong> on the response row &mdash; that sends
           the payer their confirmation email.
         </p>
+
+        ${
+          state.config && state.config.emailConfigured === false
+            ? `
+              <p class="special-form-note special-form-note-warning">
+                <strong>Email is not set up.</strong> Payment QR codes and payment confirmations will not
+                send until you add <code>GMAIL_USER</code> and <code>GMAIL_APP_PASSWORD</code> to your
+                <code>.env</code> and restart the app. Everything else still works and nothing is lost.
+              </p>
+            `
+            : ''
+        }
+
+        <div class="special-email-check">
+          <button type="button" class="button-link button-link-secondary" data-send-test-email>Send test email</button>
+          <span class="field-help" data-test-email-status></span>
+        </div>
       </div>
     </section>
   `;
@@ -4505,6 +4524,40 @@ function attachSpecialFormBuilder(root, { onStatus } = {}) {
       paymentFields.hidden = !paymentEnabledInput.checked;
     });
   }
+
+  root.addEventListener('click', async (event) => {
+    const testEmailButton = event.target.closest('[data-send-test-email]');
+
+    if (!testEmailButton) {
+      return;
+    }
+
+    const note = root.querySelector('[data-test-email-status]');
+    const setNote = (text, className) => {
+      if (!note) {
+        return;
+      }
+
+      note.textContent = text;
+      note.classList.remove('is-error', 'is-success');
+
+      if (className) {
+        note.classList.add(className);
+      }
+    };
+
+    setNote('Sending...', '');
+
+    try {
+      setButtonLoading(testEmailButton, true, 'Sending...');
+      const result = await fetchJson('/account/test-email', { method: 'POST' });
+      setNote(result.message, 'is-success');
+    } catch (error) {
+      setNote(error.message, 'is-error');
+    } finally {
+      setButtonLoading(testEmailButton, false, 'Send test email');
+    }
+  });
 
   const headerImageInput = root.querySelector('[data-header-image-input]');
 

@@ -1716,6 +1716,12 @@ textarea {
   color: var(--danger);
 }
 
+/* For outcomes that partly succeeded, e.g. a payment marked paid whose
+   confirmation email had no address to go to. */
+.status.is-warning {
+  color: #8a5a12;
+}
+
 .event-card-actions,
 .detail-actions {
   margin-top: 16px;
@@ -8474,4 +8480,38 @@ textarea {
   .special-payment-summary-wide > div {
     min-width: 100%;
   }
+}
+
+.special-form-note-warning {
+  background: rgba(187, 69, 65, 0.09);
+  color: #8a3330;
+}
+
+.special-form-note-warning code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.78rem;
+}
+
+.special-email-check {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.admin-page .special-email-check .button-link {
+  width: auto;
+  min-height: 40px;
+  padding: 0 18px;
+  font-size: 0.82rem;
+}
+
+[data-test-email-status].is-success {
+  color: var(--success);
+  font-weight: 600;
+}
+
+[data-test-email-status].is-error {
+  color: var(--danger);
+  font-weight: 600;
 }
