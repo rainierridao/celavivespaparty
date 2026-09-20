@@ -321,3 +321,52 @@ test('rejects rules that could never be answered', () => {
     { fieldId: 'q', type: 'short-text', label: 'Detail', showIf: { fieldId: 'p', values: ['Maybe'] } }
   ]), /no longer offers/);
 });
+
+test('a photo upload can be revealed by one checkbox option', () => {
+  // The awardee case: tick an achievement, then upload proof of it.
+  const form = normalizeSpecialFormDefinition({
+    fields: [
+      {
+        fieldId: 'ach',
+        type: 'checkbox',
+        label: 'What are your current achievements for 2026?',
+        options: ['Pacesetter', 'Pacesetter Creator', 'None yet']
+      },
+      {
+        fieldId: 'proof',
+        type: 'photo-upload',
+        label: 'Upload your awardee photo',
+        required: true,
+        showIf: { fieldId: 'ach', values: ['Pacesetter', 'Pacesetter Creator'] }
+      }
+    ]
+  });
+  const event = { eventType: 'Special Event', specialForm: form };
+  const photo = 'data:image/jpeg;base64,/9j/4AAQSkZJRg==';
+
+  // Neither award ticked: the upload never appears, so it cannot block submission.
+  const none = normalizeSpecialFormSubmission({ answers: { ach: ['None yet'] } }, event);
+  assert.equal(none.answers['Upload your awardee photo'], '');
+  assert.equal(none.photos.length, 0);
+
+  // Ticking either award reveals it, and then it is genuinely required.
+  assert.throws(
+    () => normalizeSpecialFormSubmission({ answers: { ach: ['Pacesetter'] } }, event),
+    /"Upload your awardee photo" needs a photo/
+  );
+
+  const awarded = normalizeSpecialFormSubmission(
+    { answers: { ach: ['Pacesetter Creator'], proof: { dataUrl: photo, fileName: 'award.jpg' } } },
+    event
+  );
+  assert.equal(awarded.photos.length, 1);
+  assert.equal(awarded.photos[0].fileName, 'award.jpg');
+
+  // A photo posted for a hidden upload is thrown away, not stored.
+  const sneaky = normalizeSpecialFormSubmission(
+    { answers: { ach: ['None yet'], proof: { dataUrl: photo, fileName: 'award.jpg' } } },
+    event
+  );
+  assert.equal(sneaky.photos.length, 0);
+  assert.equal(sneaky.answers['Upload your awardee photo'], '');
+});

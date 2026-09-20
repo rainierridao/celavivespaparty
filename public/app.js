@@ -15,10 +15,10 @@ const STANDARD_RSVP_EVENT_TYPES = [CELAVIVE_SPA_PARTY_EVENT_TYPE, WELLNESS_WEDNE
 const SPECIAL_FORM_BLOCKS = [
   { type: 'short-text', label: 'Short answer', hint: 'One line of text' },
   { type: 'paragraph', label: 'Paragraph', hint: 'Long text answer' },
-  { type: 'multiple-choice', label: 'Multiple choice', hint: 'Pick one option' },
-  { type: 'checkbox', label: 'Checkboxes', hint: 'Pick as many as they want' },
-  { type: 'dropdown', label: 'Dropdown', hint: 'Pick one from a list' },
-  { type: 'poll', label: 'Poll', hint: 'A single-choice vote' },
+  { type: 'multiple-choice', label: 'Multiple choice', hint: 'Pick one option. Can reveal follow-up questions, e.g. Yes / No' },
+  { type: 'checkbox', label: 'Checkboxes', hint: 'Pick as many as they want. Can reveal follow-up questions' },
+  { type: 'dropdown', label: 'Dropdown', hint: 'Pick one from a list. Can reveal follow-up questions' },
+  { type: 'poll', label: 'Poll', hint: 'A single-choice vote. Can reveal follow-up questions' },
   { type: 'rating', label: 'Rating scale', hint: 'Score from 1 to 10' },
   { type: 'photo-upload', label: 'Photo upload', hint: 'The respondent attaches a photo' },
   { type: 'email', label: 'Email', hint: 'Validated email address' },
@@ -4199,11 +4199,22 @@ function renderSpecialFormBuilder({ showAccepting = false } = {}) {
         <div class="special-add-buttons">
           ${SPECIAL_FORM_BLOCKS.map(
             (block) => `
-              <button type="button" class="special-add-button" data-add-special-block="${escapeAttribute(block.type)}" title="${escapeAttribute(block.hint)}">
-                ${escapeHtml(block.label)}
+              <button
+                type="button"
+                class="special-add-button${isSpecialFormChoiceType(block.type) ? ' can-branch' : ''}"
+                data-add-special-block="${escapeAttribute(block.type)}"
+                title="${escapeAttribute(block.hint)}"
+              >
+                ${escapeHtml(block.label)}${isSpecialFormChoiceType(block.type) ? '<span class="special-add-branch" aria-hidden="true">&#8623;</span>' : ''}
               </button>
             `
           ).join('')}
+        </div>
+        <p class="special-add-legend">
+          <span class="special-add-branch" aria-hidden="true">&#8623;</span>
+          These can reveal follow-up questions. Use <strong>Multiple choice</strong> for a Yes / No.
+        </p>
+        <div hidden>
         </div>
       </div>
       ${showAccepting ? renderSpecialPaymentSettings() : ''}
@@ -4458,6 +4469,7 @@ function renderSpecialFormBlock(field, index, total) {
           `
       }
 
+      ${renderSpecialFollowUpManager(field, index)}
       ${renderSpecialFormConditionEditor(field, index)}
     </article>
   `;
@@ -4471,11 +4483,176 @@ function getSpecialFormConditionSources(index) {
     .filter((field) => isSpecialFormChoiceType(field.type) && (field.options || []).length);
 }
 
+// Follow-ups are managed from the question that drives them: the blocks that
+// depend on this one, grouped by the answer that reveals them.
+function getSpecialFollowUps(field) {
+  const draft = getSpecialFormDraft();
+
+  return draft.fields
+    .map((item, index) => ({ item, index }))
+    .filter(({ item }) => item.showIf && item.showIf.fieldId === field.fieldId);
+}
+
+function renderSpecialFollowUpManager(field, index) {
+  if (!isSpecialFormChoiceType(field.type) || !(field.options || []).length) {
+    return '';
+  }
+
+  const followUps = getSpecialFollowUps(field);
+
+  return `
+    <div class="special-followups" data-special-followups>
+      <div class="special-followups-head">
+        <span class="field-label">Follow-up questions</span>
+        <button type="button" class="button-link button-link-secondary" data-add-followup>
+          + Add follow-up
+        </button>
+      </div>
+
+      ${
+        followUps.length
+          ? `
+            <ul class="special-followup-list">
+              ${followUps
+                .map(
+                  ({ item }) => `
+                    <li class="special-followup-item">
+                      <div>
+                        <strong>${escapeHtml(item.label || getSpecialBlockMeta(item.type).label)}</strong>
+                        <span>${escapeHtml(getSpecialBlockMeta(item.type).label)} &middot; shows when answered ${escapeHtml((item.showIf.values || []).join(' or '))}</span>
+                      </div>
+                      <button
+                        type="button"
+                        class="special-block-icon special-block-icon-danger"
+                        data-remove-followup="${escapeAttribute(item.fieldId)}"
+                        aria-label="Remove follow-up"
+                      >
+                        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 6L18 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+                      </button>
+                    </li>
+                  `
+                )
+                .join('')}
+            </ul>
+          `
+          : '<p class="special-followups-empty">None yet. Add one to ask something extra after a particular answer.</p>'
+      }
+    </div>
+  `;
+}
+
+// Returns { type, values } or null when dismissed.
+function showFollowUpPicker(parentField) {
+  return new Promise((resolve) => {
+    const options = parentField.options || [];
+    const modal = document.createElement('div');
+    modal.className = 'prospect-insight-modal followup-picker is-open';
+    modal.innerHTML = `
+      <div class="prospect-insight-surface followup-picker-surface" role="dialog" aria-modal="true" aria-labelledby="followUpPickerTitle">
+        <div class="prospect-insight-kicker">Follow-up question</div>
+        <h2 id="followUpPickerTitle">After &ldquo;${escapeHtml(parentField.label || 'this question')}&rdquo;</h2>
+
+        <div class="field full">
+          <span class="field-label">Show it when the answer is</span>
+          <div class="followup-picker-values">
+            ${options
+              .map(
+                (option, optionIndex) => `
+                  <label class="special-inline-toggle">
+                    <input type="checkbox" data-followup-value value="${escapeAttribute(option)}" ${optionIndex === 0 ? 'checked' : ''}>
+                    <span>${escapeHtml(option)}</span>
+                  </label>
+                `
+              )
+              .join('')}
+          </div>
+        </div>
+
+        <div class="field full">
+          <span class="field-label">Then ask for</span>
+          <div class="followup-picker-types">
+            ${SPECIAL_FORM_BLOCKS.map(
+              (item) => `
+                <button type="button" class="special-add-button" data-followup-type="${escapeAttribute(item.type)}" title="${escapeAttribute(item.hint)}">
+                  ${escapeHtml(item.label)}
+                </button>
+              `
+            ).join('')}
+          </div>
+        </div>
+
+        <div class="followup-picker-foot">
+          <span class="status" data-followup-error aria-live="polite"></span>
+          <button type="button" class="button-link button-link-secondary" data-followup-cancel>Cancel</button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    const close = (result) => {
+      document.removeEventListener('keydown', onKeydown, true);
+      modal.remove();
+      resolve(result);
+    };
+
+    const onKeydown = (event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        close(null);
+      }
+    };
+
+    document.addEventListener('keydown', onKeydown, true);
+
+    modal.addEventListener('click', (event) => {
+      if (event.target === modal || event.target.closest('[data-followup-cancel]')) {
+        close(null);
+        return;
+      }
+
+      const typeButton = event.target.closest('[data-followup-type]');
+
+      if (!typeButton) {
+        return;
+      }
+
+      const values = Array.from(modal.querySelectorAll('[data-followup-value]:checked')).map((i) => i.value);
+
+      if (!values.length) {
+        setStatus(modal.querySelector('[data-followup-error]'), 'Tick at least one answer first.', 'is-error');
+        return;
+      }
+
+      close({ type: typeButton.dataset.followupType, values });
+    });
+
+    const firstType = modal.querySelector('[data-followup-type]');
+
+    if (firstType) {
+      firstType.focus();
+    }
+  });
+}
+
 function renderSpecialFormConditionEditor(field, index) {
   const sources = getSpecialFormConditionSources(index);
 
+  // The first block has nothing above it to depend on, so stay silent there.
+  // Anywhere else, explain why the option is missing rather than hiding it.
   if (!sources.length) {
-    return '';
+    if (index === 0 || isSpecialFormDisplayType(field.type)) {
+      return '';
+    }
+
+    return `
+      <p class="special-condition-hint">
+        To show this only after a certain answer, add a <strong>Multiple choice</strong>,
+        <strong>Checkboxes</strong>, <strong>Dropdown</strong> or <strong>Poll</strong>
+        question above it first.
+      </p>
+    `;
   }
 
   const rule = field.showIf || null;
@@ -4773,8 +4950,22 @@ function attachSpecialFormBuilder(root, { onStatus } = {}) {
 
     if (event.target.closest('[data-remove-special-block]')) {
       syncSpecialFormDraftFromDom(root);
+      const removedId = draft.fields[fieldIndex].fieldId;
       draft.fields.splice(fieldIndex, 1);
+
+      // Blocks that were revealed by this one can no longer be reached.
+      const orphans = draft.fields.filter((item) => item.showIf && item.showIf.fieldId === removedId);
+      orphans.forEach((orphan) => draft.fields.splice(draft.fields.indexOf(orphan), 1));
+
       refreshSpecialFormBlocks(root);
+
+      if (orphans.length) {
+        report(
+          `Block removed, along with ${orphans.length} follow-up${orphans.length === 1 ? '' : 's'} that depended on it.`,
+          'is-success'
+        );
+      }
+
       return;
     }
 
@@ -4813,6 +5004,74 @@ function attachSpecialFormBuilder(root, { onStatus } = {}) {
         refreshSpecialFormBlocks(root);
       } else {
         report('Keep at least two choices.', 'is-error');
+      }
+
+      return;
+    }
+
+    if (event.target.closest('[data-add-followup]')) {
+      syncSpecialFormDraftFromDom(root);
+      const parentField = draft.fields[fieldIndex];
+      const picked = await showFollowUpPicker(parentField);
+
+      if (!picked) {
+        return;
+      }
+
+      const newField = createSpecialFormField(picked.type);
+      newField.showIf = { fieldId: parentField.fieldId, values: picked.values };
+
+      // Keep a question's follow-ups together, after the last one it already has.
+      const existing = getSpecialFollowUps(parentField);
+      const insertAt = (existing.length ? existing[existing.length - 1].index : fieldIndex) + 1;
+      draft.fields.splice(insertAt, 0, newField);
+      refreshSpecialFormBlocks(root);
+
+      const added = root.querySelector(`[data-special-block="${newField.fieldId}"]`);
+
+      if (added) {
+        added.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        const labelInput = added.querySelector('[data-block-label]');
+
+        if (labelInput) {
+          labelInput.focus();
+        }
+      }
+
+      report(
+        `Follow-up added. It appears when "${parentField.label || 'the question above'}" is answered ${picked.values.join(' or ')}.`,
+        'is-success'
+      );
+      return;
+    }
+
+    const removeFollowUp = event.target.closest('[data-remove-followup]');
+
+    if (removeFollowUp) {
+      syncSpecialFormDraftFromDom(root);
+      const targetId = removeFollowUp.dataset.removeFollowup;
+      const targetIndex = draft.fields.findIndex((item) => item.fieldId === targetId);
+
+      if (targetIndex >= 0) {
+        // Anything chained off this block would be orphaned, so drop it too.
+        const orphans = draft.fields.filter(
+          (item) => item.showIf && item.showIf.fieldId === targetId
+        );
+        draft.fields.splice(targetIndex, 1);
+        orphans.forEach((orphan) => {
+          const orphanIndex = draft.fields.indexOf(orphan);
+
+          if (orphanIndex >= 0) {
+            draft.fields.splice(orphanIndex, 1);
+          }
+        });
+        refreshSpecialFormBlocks(root);
+        report(
+          orphans.length
+            ? `Follow-up removed, along with ${orphans.length} question${orphans.length === 1 ? '' : 's'} that depended on it.`
+            : 'Follow-up removed.',
+          'is-success'
+        );
       }
 
       return;
