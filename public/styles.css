@@ -8694,3 +8694,218 @@ textarea {
   min-height: 40px;
   padding: 0 18px;
 }
+
+/* Shared masterlist: the public respondent list behind a share link, plus the
+   controls the organiser uses to hand that link out. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.masterlist-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.masterlist-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: var(--surface-strong);
+  border: 1px solid rgba(111, 79, 54, 0.12);
+  font-size: 0.86rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.masterlist-chip strong {
+  font-size: 1rem;
+  color: var(--text);
+}
+
+.masterlist-chip.is-paid strong {
+  color: var(--success);
+}
+
+.masterlist-chip.is-pending strong {
+  color: var(--accent-deep);
+}
+
+.masterlist-panel-head p {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.masterlist-search {
+  display: block;
+  margin: 18px 0 14px;
+}
+
+.masterlist-search input {
+  width: 100%;
+  min-height: 48px;
+  padding: 0 16px;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(111, 79, 54, 0.18);
+  background: #fff;
+  font: inherit;
+  color: var(--text);
+}
+
+.masterlist-search input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(170, 107, 67, 0.16);
+}
+
+.masterlist-muted {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.masterlist-card-list {
+  display: none;
+}
+
+.masterlist-payment-button {
+  width: auto;
+  min-height: 34px;
+  padding: 0 14px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+@media (max-width: 720px) {
+  .masterlist-table-wrap {
+    display: none;
+  }
+
+  .masterlist-card-list {
+    display: grid;
+    gap: 10px;
+  }
+
+  .masterlist-entry {
+    border-radius: var(--radius-md);
+    border: 1px solid rgba(111, 79, 54, 0.14);
+    background: #fff;
+    overflow: hidden;
+  }
+
+  .masterlist-entry summary {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 16px;
+    cursor: pointer;
+    list-style: none;
+  }
+
+  .masterlist-entry summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .masterlist-entry-index {
+    min-width: 26px;
+    color: var(--muted);
+    font-size: 0.82rem;
+    font-weight: 700;
+  }
+
+  .masterlist-entry-name {
+    flex: 1;
+    min-width: 0;
+    font-weight: 700;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .masterlist-entry-body {
+    display: grid;
+    gap: 10px;
+    padding: 0 16px 16px;
+  }
+
+  .masterlist-entry-row {
+    display: grid;
+    gap: 2px;
+  }
+
+  .masterlist-entry-row span {
+    font-size: 0.74rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+  }
+
+  .masterlist-entry-row strong {
+    font-weight: 600;
+    word-break: break-word;
+  }
+
+  .masterlist-entry-actions {
+    padding-top: 4px;
+  }
+}
+
+.masterlist-share-stack {
+  gap: 10px;
+}
+
+.masterlist-share-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+
+.masterlist-share-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.86rem;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.masterlist-share-toggle input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent);
+}
+
+.masterlist-share-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.masterlist-share-actions .button-link {
+  width: auto;
+  min-height: 38px;
+  padding: 0 16px;
+  border-radius: 999px;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+/* Link stacks in the event hero differ in height once the masterlist controls sit
+   beside the form link, so they align to the top instead of stretching apart. */
+.detail-link-grid .modern-link-stack {
+  align-content: start;
+}

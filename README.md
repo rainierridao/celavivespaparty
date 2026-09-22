@@ -165,6 +165,34 @@ money arrived, so the *Mark Paid* step is a real decision you make after seeing 
 payment. Only an integrated gateway (PayMongo, Xendit) could confirm automatically,
 and that needs a merchant account and per-transaction fees.
 
+## Sharing the masterlist of respondents
+
+Open the Special Event and press **Create share link** under *Shared Masterlist Link*.
+That publishes one page at `/masterlist/<token>` listing every respondent for the event.
+Anyone holding the link can open it — no account, no login — so send it to whoever is
+helping you at the door.
+
+The page shows the submission time, every answer column, and (when payments are on)
+the reference code, amount, and payment status, plus a running count of paid and
+unpaid respondents and a search box.
+
+Tick **Let whoever opens the link mark payments as paid** to let helpers press
+*Mark Paid* on the shared page. It behaves exactly like the button in your own response
+log: it flips the row to Paid and emails the respondent their confirmation. Untick it
+and the page is read-only. The checkbox only appears once payments are turned on for
+the event.
+
+Two things to keep in mind:
+
+- The link is the only key. Anyone it is forwarded to sees the whole respondent list,
+  contact answers included, so share it the way you would share a password.
+- **Turn off** kills the link immediately, and **New link** replaces it. In both cases
+  the old URL stops working for everyone, and turning sharing back on always issues a
+  different link rather than reviving the old one.
+
+Photos submitted through the form are not downloadable from the shared page — the rows
+say *Photo attached* instead. Only you can open them, from the response log.
+
 ## Firebase / Firestore backend
 
 The app can use Firestore as the primary backend instead of Google Sheets.

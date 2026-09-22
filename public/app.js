@@ -763,6 +763,24 @@ async function renderRoute() {
     return;
   }
 
+  const masterlistShareMatch = pathname.match(/^\/masterlist\/([^/]+)$/);
+
+  if (masterlistShareMatch) {
+    renderLoading('Loading masterlist...');
+
+    try {
+      const token = masterlistShareMatch[1];
+      const result = await fetchJson(`/shared-masterlist/${encodeURIComponent(token)}`);
+      renderPage(renderSharedMasterlistPage(result.masterlist, token));
+      syncDynamicHeaderTitle();
+      attachSharedMasterlistHandlers(result.masterlist, token);
+    } catch (error) {
+      renderPage(renderErrorPage('This masterlist is not available.', error.message));
+    }
+
+    return;
+  }
+
   const groupDeliveryMatch = pathname.match(/^\/group-delivery\/([^/]+)$/);
 
   if (groupDeliveryMatch) {
@@ -1751,6 +1769,7 @@ function attachEventDetailHandlers(eventData) {
   }
 
   attachSpecialFormEditorHandlers(eventData);
+  attachMasterlistShareHandlers(eventData);
 
   if (qrImage) {
     qrImage.src = buildQrUrl(rsvpUrl);
@@ -5407,6 +5426,7 @@ function renderEventDetailPage(eventData, previews = {}) {
                         openLabel: 'Open form'
                       })}
                     </div>
+                    ${renderMasterlistShareControl(eventData)}
                   `
                   : ''
               }
@@ -6244,6 +6264,148 @@ function renderEventUrlControl({ url, openHref, copyLabel, openLabel }) {
   `;
 }
 
+function renderMasterlistShareControl(eventData) {
+  const share = eventData.masterlistShare || {};
+  const isOn = Boolean(share.enabled && eventData.masterlistSharePath);
+  const shareUrl = isOn ? `${window.location.origin}${eventData.masterlistSharePath}` : '';
+  const paymentsOn = Boolean(eventData.specialPayment && eventData.specialPayment.enabled);
+
+  return `
+    <div class="link-stack modern-link-stack masterlist-share-stack">
+      <label>Shared Masterlist Link</label>
+      ${
+        isOn
+          ? `
+            ${renderEventUrlControl({
+              url: shareUrl,
+              openHref: eventData.masterlistSharePath,
+              copyLabel: 'masterlist link',
+              openLabel: 'Open masterlist'
+            })}
+            <p class="masterlist-share-note">
+              Anyone holding this link sees every respondent for this event. No login needed.
+            </p>
+          `
+          : `
+            <p class="masterlist-share-note">
+              Off. Turn it on to give helpers a view-only link to the respondent masterlist.
+            </p>
+          `
+      }
+      ${
+        paymentsOn
+          ? `
+            <label class="masterlist-share-toggle">
+              <input
+                type="checkbox"
+                id="masterlistAllowMarkPaid"
+                ${share.allowMarkPaid === false ? '' : 'checked'}
+              >
+              <span>Let whoever opens the link mark payments as paid</span>
+            </label>
+          `
+          : ''
+      }
+      <div class="masterlist-share-actions">
+        ${
+          isOn
+            ? `
+              <button type="button" class="button-link button-link-secondary" data-masterlist-share-action="regenerate">New link</button>
+              <button type="button" class="button-link button-link-danger" data-masterlist-share-action="disable">Turn off</button>
+            `
+            : '<button type="button" class="button-link" data-masterlist-share-action="enable">Create share link</button>'
+        }
+      </div>
+      <div id="masterlistShareStatus" class="status" aria-live="polite"></div>
+    </div>
+  `;
+}
+
+function attachMasterlistShareHandlers(eventData) {
+  const allowMarkPaidInput = document.getElementById('masterlistAllowMarkPaid');
+  const share = eventData.masterlistShare || {};
+
+  const saveShareSettings = async ({ enabled, regenerate, button, loadingLabel, confirm }) => {
+    if (confirm && !(await showConfirmModal(confirm))) {
+      return;
+    }
+
+    const originalLabel = button ? button.textContent : '';
+
+    try {
+      if (button) {
+        setButtonLoading(button, true, loadingLabel);
+      }
+
+      const result = await fetchJson(`/events/${eventData.eventId}`, {
+        method: 'PATCH',
+        body: {
+          action: 'masterlist-share',
+          enabled,
+          regenerate: Boolean(regenerate),
+          allowMarkPaid: allowMarkPaidInput ? allowMarkPaidInput.checked : share.allowMarkPaid !== false
+        }
+      });
+
+      await renderRoute();
+      setStatus(document.getElementById('masterlistShareStatus'), result.message, 'is-success');
+    } catch (error) {
+      setStatus(document.getElementById('masterlistShareStatus'), error.message, 'is-error');
+
+      if (button) {
+        setButtonLoading(button, false, originalLabel);
+      }
+    }
+  };
+
+  document.querySelectorAll('[data-masterlist-share-action]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const action = button.getAttribute('data-masterlist-share-action');
+
+      if (action === 'enable') {
+        return saveShareSettings({ enabled: true, button, loadingLabel: 'Creating...' });
+      }
+
+      if (action === 'regenerate') {
+        return saveShareSettings({
+          enabled: true,
+          regenerate: true,
+          button,
+          loadingLabel: 'Creating...',
+          confirm: {
+            title: 'Replace the masterlist link?',
+            message: 'The link you already shared stops working and everyone needs the new one.',
+            confirmLabel: 'Create new link'
+          }
+        });
+      }
+
+      return saveShareSettings({
+        enabled: false,
+        button,
+        loadingLabel: 'Turning off...',
+        confirm: {
+          title: 'Turn off the masterlist link?',
+          message: 'Anyone holding the link loses access straight away. Turning it back on creates a different link.',
+          confirmLabel: 'Turn off',
+          tone: 'danger'
+        }
+      });
+    });
+  });
+
+  if (allowMarkPaidInput) {
+    allowMarkPaidInput.addEventListener('change', () => {
+      if (!share.enabled) {
+        // Nothing is shared yet, so the choice is just carried into the next save.
+        return;
+      }
+
+      saveShareSettings({ enabled: true });
+    });
+  }
+}
+
 function getRsvpResponseSummary(row) {
   const slotLabel = row['Slot Label'] || '';
 
@@ -6727,6 +6889,266 @@ function renderPublicSpecialEventPage(eventData, images = {}) {
       </div>
     </div>
   `;
+}
+
+function renderSharedMasterlistPage(masterlist, token) {
+  const columns = masterlist.columns || [];
+  const rows = masterlist.rows || [];
+  const totals = masterlist.totals || { responses: rows.length, paid: 0, unpaid: 0 };
+
+  return `
+    <div class="page public-page">
+      <div class="public-shell-modern masterlist-shell">
+        <section class="public-hero-panel masterlist-hero">
+          <div class="public-hero-copy">
+            <span class="section-kicker">Masterlist</span>
+            <h1 data-dynamic-title>${escapeHtml(masterlist.eventName || 'Event masterlist')}</h1>
+            <p class="lede">${escapeHtml(
+              [masterlist.location, masterlist.displayDateTime].filter(Boolean).join(' \u00b7 ')
+            )}</p>
+            <div class="masterlist-summary">
+              <span class="masterlist-chip"><strong>${totals.responses}</strong> respondent${totals.responses === 1 ? '' : 's'}</span>
+              ${
+                masterlist.paymentEnabled
+                  ? `
+                    <span class="masterlist-chip is-paid"><strong>${totals.paid}</strong> paid</span>
+                    <span class="masterlist-chip is-pending"><strong>${totals.unpaid}</strong> unpaid</span>
+                    ${masterlist.paymentAmount ? `<span class="masterlist-chip">${escapeHtml(masterlist.paymentAmount)} each</span>` : ''}
+                  `
+                  : ''
+              }
+            </div>
+          </div>
+        </section>
+        <section class="public-form-shell">
+          <div class="form-card public-form-card masterlist-card">
+            <div class="panel-head masterlist-panel-head">
+              <div>
+                <span class="section-kicker">Respondents</span>
+                <h2>${escapeHtml(masterlist.eventName || 'Masterlist')}</h2>
+                <p>${escapeHtml(
+                  masterlist.allowMarkPaid
+                    ? 'Anyone with this link can view the list and mark a payment as received.'
+                    : 'This is a view-only copy of the respondent list.'
+                )}</p>
+              </div>
+            </div>
+            ${
+              rows.length
+                ? `
+                  <label class="masterlist-search">
+                    <span class="visually-hidden">Search respondents</span>
+                    <input type="search" id="masterlistSearch" placeholder="Search name, email, reference..." autocomplete="off">
+                  </label>
+                  <div id="responseActionStatus" class="status response-action-status" aria-live="polite"></div>
+                  <div id="masterlistEmptyFilter" class="empty-state empty-state-modern" hidden>
+                    <strong>No match.</strong>
+                    <span>No respondent matches that search.</span>
+                  </div>
+                  ${renderMasterlistTable(masterlist, columns, rows)}
+                  ${renderMasterlistCards(masterlist, columns, rows)}
+                `
+                : `
+                  <div class="empty-state empty-state-modern">
+                    <strong>No responses yet.</strong>
+                    <span>Respondents will appear here as soon as the form is filled in.</span>
+                  </div>
+                `
+            }
+            ${renderPoweredFooter('footer-note auth-legal public-form-powered')}
+          </div>
+        </section>
+      </div>
+    </div>
+  `;
+}
+
+function renderMasterlistTable(masterlist, columns, rows) {
+  return `
+    <div class="table-wrap masterlist-table-wrap">
+      <table class="response-table masterlist-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            ${columns.map((column) => `<th>${escapeHtml(column)}</th>`).join('')}
+            ${masterlist.allowMarkPaid ? '<th>Payment</th>' : ''}
+          </tr>
+        </thead>
+        <tbody>
+          ${rows
+            .map(
+              (row, index) => `
+                <tr data-masterlist-row data-search="${escapeAttribute(buildMasterlistSearchText(row, columns))}">
+                  <td>${index + 1}</td>
+                  ${columns.map((column) => `<td>${renderMasterlistCell(row, column)}</td>`).join('')}
+                  ${masterlist.allowMarkPaid ? `<td>${renderMasterlistPaymentAction(row)}</td>` : ''}
+                </tr>
+              `
+            )
+            .join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function renderMasterlistCards(masterlist, columns, rows) {
+  const [headlineColumn, ...restColumns] = columns.filter((column) => column !== 'Timestamp');
+
+  return `
+    <div class="masterlist-card-list">
+      ${rows
+        .map((row, index) => {
+          const headline = headlineColumn ? String(row[headlineColumn] || '').trim() : '';
+          const status = String(row['Payment Status'] || '').trim();
+
+          return `
+            <details class="masterlist-entry" data-masterlist-row data-search="${escapeAttribute(buildMasterlistSearchText(row, columns))}">
+              <summary>
+                <span class="masterlist-entry-index">${index + 1}</span>
+                <span class="masterlist-entry-name">${escapeHtml(headline || 'Response')}</span>
+                ${
+                  masterlist.paymentEnabled && status
+                    ? `<span class="payment-status-pill ${status === 'Paid' ? 'is-paid' : status === 'Cancelled' ? 'is-cancelled' : 'is-pending'}">${escapeHtml(status)}</span>`
+                    : ''
+                }
+              </summary>
+              <div class="masterlist-entry-body">
+                ${restColumns
+                  .map(
+                    (column) => `
+                      <div class="masterlist-entry-row">
+                        <span>${escapeHtml(column)}</span>
+                        <strong>${renderMasterlistCell(row, column)}</strong>
+                      </div>
+                    `
+                  )
+                  .join('')}
+                ${masterlist.allowMarkPaid ? `<div class="masterlist-entry-actions">${renderMasterlistPaymentAction(row)}</div>` : ''}
+              </div>
+            </details>
+          `;
+        })
+        .join('')}
+    </div>
+  `;
+}
+
+function renderMasterlistCell(row, column) {
+  const value = String(row[column] || '');
+
+  if ((column === 'Timestamp' || column === 'Paid At') && value) {
+    return escapeHtml(formatMetricDateTime(value) || value);
+  }
+
+  if (column === 'Payment Status' && value) {
+    const tone = value === 'Paid' ? 'is-paid' : value === 'Cancelled' ? 'is-cancelled' : 'is-pending';
+    return `<span class="payment-status-pill ${tone}">${escapeHtml(value)}</span>`;
+  }
+
+  // Photos live behind an owner-only endpoint, so a shared list names them instead.
+  if (isSpecialPhotoReference(value)) {
+    return '<span class="masterlist-muted">Photo attached</span>';
+  }
+
+  return escapeHtml(value);
+}
+
+function renderMasterlistPaymentAction(row) {
+  const reference = String(row['Payment Reference'] || '').trim();
+
+  if (!reference) {
+    return '<span class="masterlist-muted">No payment</span>';
+  }
+
+  const isPaid = String(row['Payment Status'] || '').trim() === 'Paid';
+
+  return `
+    <button
+      type="button"
+      class="button-link button-link-secondary response-payment-button masterlist-payment-button"
+      data-masterlist-payment
+      data-payment-reference="${escapeAttribute(reference)}"
+      data-payment-paid="${isPaid ? 'false' : 'true'}"
+    >${isPaid ? 'Mark Unpaid' : 'Mark Paid'}</button>
+  `;
+}
+
+function buildMasterlistSearchText(row, columns) {
+  return columns
+    .map((column) => String(row[column] || ''))
+    .concat(String(row['Payment Reference'] || ''), String(row['Payment Status'] || ''))
+    .join(' ')
+    .toLowerCase();
+}
+
+function attachSharedMasterlistHandlers(masterlist, token) {
+  const searchInput = document.getElementById('masterlistSearch');
+  const emptyFilter = document.getElementById('masterlistEmptyFilter');
+
+  if (searchInput) {
+    searchInput.addEventListener('input', () => {
+      const term = searchInput.value.trim().toLowerCase();
+      const rows = Array.from(document.querySelectorAll('[data-masterlist-row]'));
+      let visibleCount = 0;
+
+      rows.forEach((row) => {
+        const matches = !term || (row.getAttribute('data-search') || '').includes(term);
+        row.hidden = !matches;
+
+        if (matches) {
+          visibleCount += 1;
+        }
+      });
+
+      if (emptyFilter) {
+        emptyFilter.hidden = visibleCount > 0;
+      }
+    });
+  }
+
+  if (!masterlist.allowMarkPaid) {
+    return;
+  }
+
+  document.querySelectorAll('[data-masterlist-payment]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const reference = button.getAttribute('data-payment-reference');
+      const shouldMarkPaid = button.getAttribute('data-payment-paid') === 'true';
+      const confirmed = await showConfirmModal({
+        title: shouldMarkPaid ? 'Confirm this payment?' : 'Move back to pending?',
+        message: shouldMarkPaid
+          ? `Only do this once the payment for ${reference} has actually landed. The respondent gets a confirmation email.`
+          : `${reference} goes back to unpaid. No email is sent.`,
+        confirmLabel: shouldMarkPaid ? 'Mark Paid' : 'Mark Unpaid'
+      });
+
+      if (!confirmed) {
+        return;
+      }
+
+      try {
+        setButtonLoading(button, true, shouldMarkPaid ? 'Confirming...' : 'Updating...');
+        const result = await fetchJson(
+          `/shared-masterlist/${encodeURIComponent(token)}/payments/${encodeURIComponent(reference)}`,
+          { method: 'PATCH', body: { paid: shouldMarkPaid } }
+        );
+        const tone = result.tone === 'error' ? 'is-error' : result.tone === 'warning' ? 'is-warning' : 'is-success';
+        // The redraw replaces this button, so the message goes to the status element
+        // that exists after it.
+        await renderRoute();
+        const refreshedStatus = document.getElementById('responseActionStatus');
+        setStatus(refreshedStatus, result.message, tone);
+
+        if (refreshedStatus) {
+          refreshedStatus.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      } catch (error) {
+        setStatus(document.getElementById('responseActionStatus'), error.message, 'is-error');
+        setButtonLoading(button, false, shouldMarkPaid ? 'Mark Paid' : 'Mark Unpaid');
+      }
+    });
+  });
 }
 
 function renderSpecialFormPublicField(field, images = {}) {
