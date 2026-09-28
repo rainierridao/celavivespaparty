@@ -7402,8 +7402,29 @@ function collectSpecialFormAnswers(form, eventData) {
   return answers;
 }
 
+const SPECIAL_PAYMENT_OPTIONS = [
+  { value: 'now', label: 'Pay now', hint: 'Show the QR here so you can pay right away' },
+  { value: 'later', label: 'Pay later', hint: 'We email you the QR so you can pay when ready' },
+  { value: 'onsite', label: 'Pay on site', hint: 'Pay in cash when you arrive' }
+];
+
+function getSpecialPaymentOnlineMethods(payment) {
+  return (payment.methods || []).filter((method) => method !== 'Cash on site');
+}
+
+function getSpecialPaymentOptionsFor(payment) {
+  if (Array.isArray(payment.options) && payment.options.length) {
+    return payment.options;
+  }
+
+  const options = getSpecialPaymentOnlineMethods(payment).length ? ['now', 'later'] : [];
+  return (payment.methods || []).includes('Cash on site') ? options.concat('onsite') : options;
+}
+
 function renderSpecialPaymentStage(eventData, payment) {
-  const methods = payment.methods || [];
+  const onlineMethods = getSpecialPaymentOnlineMethods(payment);
+  const options = SPECIAL_PAYMENT_OPTIONS.filter((option) => getSpecialPaymentOptionsFor(payment).includes(option.value));
+  const onlyOption = options.length === 1 ? options[0].value : '';
 
   return `
     <div class="special-payment-stage">
@@ -7412,36 +7433,81 @@ function renderSpecialPaymentStage(eventData, payment) {
         <h2>Complete your payment</h2>
       </div>
       <p class="special-payment-lede">
-        Your entry is saved. Choose how you want to pay and where we should send your QR code.
+        Your entry is saved. Choose when you want to pay and where we should send your payment details.
       </p>
       <dl class="special-payment-summary">
         <div>
           <dt>Amount</dt>
           <dd>${escapeHtml(payment.amount || '')}</dd>
         </div>
-        <div>
-          <dt>Reference code</dt>
-          <dd class="special-payment-reference">${escapeHtml(payment.reference || '')}</dd>
-        </div>
       </dl>
       <form id="specialPaymentForm" class="modern-form">
         <div class="field full">
+          <span class="field-label">How would you like to pay? <span class="required">*</span></span>
+          <div class="special-public-choices">
+            ${options.map((option) => `
+              <label class="special-public-choice">
+                <input type="radio" name="option" value="${escapeAttribute(option.value)}" required${onlyOption === option.value ? ' checked' : ''}>
+                <span><strong>${escapeHtml(option.label)}</strong><br><small>${escapeHtml(option.hint)}</small></span>
+              </label>
+            `).join('')}
+          </div>
+        </div>
+        <div class="field full" data-payment-method-field hidden>
           <label for="specialPaymentMethod">Payment Method <span class="required">*</span></label>
-          <select id="specialPaymentMethod" name="method" required>
-            ${methods.length > 1 ? '<option value="">Select a payment method</option>' : ''}
-            ${methods.map((method) => `<option value="${escapeAttribute(method)}">${escapeHtml(method)}</option>`).join('')}
+          <select id="specialPaymentMethod" name="method">
+            ${onlineMethods.length > 1 ? '<option value="">Select a payment method</option>' : ''}
+            ${onlineMethods.map((method) => `<option value="${escapeAttribute(method)}">${escapeHtml(method)}</option>`).join('')}
           </select>
         </div>
         <div class="field full">
           <label for="specialPaymentEmail">Email Address <span class="required">*</span></label>
           <input id="specialPaymentEmail" name="emailAddress" type="email" inputmode="email" required placeholder="you@example.com">
-          <span class="field-help">We will send your payment QR and the confirmation here.</span>
+          <span class="field-help" data-payment-email-help>We will send your payment details and the confirmation here.</span>
         </div>
         <div class="form-submit-row">
-          <button type="submit">Get my payment QR</button>
+          <button type="submit">Continue</button>
           <div id="specialPaymentStatus" class="status" aria-live="polite"></div>
         </div>
       </form>
+    </div>
+  `;
+}
+
+const SPECIAL_PAYMENT_SUBMIT_LABELS = {
+  now: 'Get my payment QR',
+  later: 'Email me the QR',
+  onsite: 'Confirm pay on site'
+};
+
+const SPECIAL_PAYMENT_EMAIL_HELP = {
+  now: 'We will also send your payment QR and the confirmation here.',
+  later: 'We will email your payment QR here so you can pay later.',
+  onsite: 'We will send your payment details and the confirmation here.'
+};
+
+function renderSpecialPaymentLaterStage(result) {
+  return `
+    <div class="special-payment-stage">
+      <div class="panel-head">
+        <span class="section-kicker">All set</span>
+        <h2>Check your email</h2>
+      </div>
+      <p class="special-payment-lede">
+        We sent your payment QR to <strong>${escapeHtml(result.emailAddress || '')}</strong>. Pay whenever you are ready.
+      </p>
+      <dl class="special-payment-summary">
+        <div>
+          <dt>Amount</dt>
+          <dd>${escapeHtml(result.amount || '')}</dd>
+        </div>
+      </dl>
+      <p class="special-payment-note">
+        After paying, <strong>reply to that email with a screenshot of your payment</strong> as your proof of payment.
+      </p>
+      <p class="special-payment-note special-payment-note-muted">
+        You will receive a confirmation email once your payment has been checked.
+      </p>
     </div>
   `;
 }
@@ -7450,7 +7516,6 @@ function renderSpecialPaymentQrStage(eventData, result) {
   const rows = [
     ['Amount', result.amount],
     ['Method', result.method],
-    ['Reference code', result.reference],
     ['Account name', result.accountName],
     ['Account number', result.accountNumber]
   ].filter(([, value]) => String(value || '').trim());
@@ -7459,7 +7524,7 @@ function renderSpecialPaymentQrStage(eventData, result) {
     <div class="special-payment-stage">
       <div class="panel-head">
         <span class="section-kicker">Almost done</span>
-        <h2>Scan to pay</h2>
+        <h2>${result.qrDataUrl ? 'Scan to pay' : 'See you there'}</h2>
       </div>
       ${
         result.qrDataUrl
@@ -7476,16 +7541,25 @@ function renderSpecialPaymentQrStage(eventData, result) {
             ([label, value]) => `
               <div>
                 <dt>${escapeHtml(label)}</dt>
-                <dd${label === 'Reference code' ? ' class="special-payment-reference"' : ''}>${escapeHtml(value)}</dd>
+                <dd>${escapeHtml(value)}</dd>
               </div>
             `
           )
           .join('')}
       </dl>
-      <p class="special-payment-note">
-        Put your reference code <strong>${escapeHtml(result.reference || '')}</strong> in the payment notes so we
-        can match it to your entry.
-      </p>
+      ${
+        result.qrDataUrl
+          ? `
+            <p class="special-payment-note">
+              ${
+                result.emailSent
+                  ? `After paying, <strong>reply to the email we sent to ${escapeHtml(result.emailAddress || '')} with a screenshot of your payment</strong> as your proof of payment.`
+                  : 'After paying, <strong>keep a screenshot of your payment</strong> as your proof of payment.'
+              }
+            </p>
+          `
+          : ''
+      }
       ${result.instructions ? `<p class="special-payment-note">${escapeHtml(result.instructions)}</p>` : ''}
       <p class="special-payment-note special-payment-note-muted">
         ${escapeHtml(result.emailMessage || '')}
@@ -7511,10 +7585,38 @@ function attachSpecialPaymentHandlers(eventData, payment) {
     return;
   }
 
+  const methodField = form.querySelector('[data-payment-method-field]');
+  const methodSelect = form.querySelector('#specialPaymentMethod');
+  const emailHelp = form.querySelector('[data-payment-email-help]');
+  const submitButton = form.querySelector('button[type="submit"]');
+  const getOption = () => {
+    const checked = form.querySelector('input[name="option"]:checked');
+    return checked ? checked.value : '';
+  };
+  const getSubmitLabel = () => SPECIAL_PAYMENT_SUBMIT_LABELS[getOption()] || 'Continue';
+
+  // Only "Pay now" asks for a method; pay later just needs the email for the QR.
+  const syncOption = () => {
+    const option = getOption();
+    const showMethod = option === 'now' && getSpecialPaymentOnlineMethods(payment).length > 1;
+    methodField.hidden = !showMethod;
+    methodSelect.required = showMethod;
+    emailHelp.textContent = SPECIAL_PAYMENT_EMAIL_HELP[option] || SPECIAL_PAYMENT_EMAIL_HELP.onsite;
+    submitButton.textContent = getSubmitLabel();
+  };
+
+  form.addEventListener('change', (event) => {
+    if (event.target.name === 'option') {
+      syncOption();
+    }
+  });
+  syncOption();
+
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
     const status = document.getElementById('specialPaymentStatus');
-    const submitButton = form.querySelector('button[type="submit"]');
+    const option = getOption();
+    const submitLabel = getSubmitLabel();
 
     setStatus(status, '', '');
 
@@ -7524,17 +7626,20 @@ function attachSpecialPaymentHandlers(eventData, payment) {
         method: 'POST',
         body: {
           reference: payment.reference,
-          method: form.method.value,
+          option,
+          method: option === 'now' ? methodSelect.value : '',
           emailAddress: form.emailAddress.value
         }
       });
 
-      stage.innerHTML = renderSpecialPaymentQrStage(eventData, result);
+      // Without working email the QR would never arrive, so fall back to showing it.
+      stage.innerHTML = option === 'later' && result.emailSent
+        ? renderSpecialPaymentLaterStage(result)
+        : renderSpecialPaymentQrStage(eventData, result);
       stage.scrollIntoView({ behavior: 'smooth', block: 'start' });
     } catch (error) {
       setStatus(status, error.message, 'is-error');
-    } finally {
-      setButtonLoading(submitButton, false, 'Get my payment QR');
+      setButtonLoading(submitButton, false, submitLabel);
     }
   });
 }

@@ -370,3 +370,27 @@ test('a photo upload can be revealed by one checkbox option', () => {
   assert.equal(sneaky.photos.length, 0);
   assert.equal(sneaky.answers['Upload your awardee photo'], '');
 });
+
+test('payment options follow the methods the organiser enabled', () => {
+  const { getSpecialPaymentOptions } = __test;
+
+  assert.deepEqual(getSpecialPaymentOptions({ methods: ['GCash', 'Cash on site'] }), ['now', 'later', 'onsite']);
+  assert.deepEqual(getSpecialPaymentOptions({ methods: ['GCash', 'Maya'] }), ['now', 'later']);
+  assert.deepEqual(getSpecialPaymentOptions({ methods: ['Cash on site'] }), ['onsite']);
+});
+
+test('payment step rejects an option or method the form does not offer', async () => {
+  const { saveSpecialPaymentDetails } = __test;
+  const event = {
+    eventType: 'Special Event',
+    specialPayment: { enabled: true, amount: '500', methods: ['GCash'] }
+  };
+  const base = { reference: 'ABC123', emailAddress: 'guest@example.com' };
+
+  await assert.rejects(saveSpecialPaymentDetails(event, { ...base, option: 'onsite' }), /Choose how you want to pay/);
+  await assert.rejects(saveSpecialPaymentDetails(event, { ...base, option: 'now', method: 'Maya' }), /Choose a payment method/);
+  await assert.rejects(
+    saveSpecialPaymentDetails(event, { ...base, option: 'later', emailAddress: 'not-an-email' }),
+    /valid email address/
+  );
+});
