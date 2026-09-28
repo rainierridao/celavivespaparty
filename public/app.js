@@ -4304,7 +4304,7 @@ function renderSpecialPaymentSettings() {
         <div class="field full">
           <span class="field-label">Payment Methods <span class="required">*</span></span>
           <div class="special-payment-methods">
-            ${SPECIAL_PAYMENT_METHODS.map(
+            ${SPECIAL_PAYMENT_METHODS.filter((method) => method !== 'Cash on site').map(
               (method) => `
                 <label class="special-inline-toggle">
                   <input type="checkbox" data-payment-method value="${escapeAttribute(method)}" ${payment.methods.includes(method) ? 'checked' : ''}>
@@ -4313,6 +4313,7 @@ function renderSpecialPaymentSettings() {
               `
             ).join('')}
           </div>
+          <span class="field-help">Respondents can also choose to pay later by email or pay on site.</span>
         </div>
 
         <div class="field full">
@@ -7417,8 +7418,7 @@ function getSpecialPaymentOptionsFor(payment) {
     return payment.options;
   }
 
-  const options = getSpecialPaymentOnlineMethods(payment).length ? ['now', 'later'] : [];
-  return (payment.methods || []).includes('Cash on site') ? options.concat('onsite') : options;
+  return getSpecialPaymentOnlineMethods(payment).length ? ['now', 'later', 'onsite'] : ['onsite'];
 }
 
 function renderSpecialPaymentStage(eventData, payment) {
@@ -7441,7 +7441,7 @@ function renderSpecialPaymentStage(eventData, payment) {
           <dd>${escapeHtml(payment.amount || '')}</dd>
         </div>
       </dl>
-      <form id="specialPaymentForm" class="modern-form">
+      <form id="specialPaymentForm" class="modern-form special-payment-form">
         <div class="field full">
           <span class="field-label">How would you like to pay? <span class="required">*</span></span>
           <div class="special-public-choices">
