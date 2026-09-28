@@ -18,6 +18,7 @@ const SPECIAL_FORM_BLOCKS = [
   { type: 'multiple-choice', label: 'Multiple choice', hint: 'Pick one option. Can reveal follow-up questions, e.g. Yes / No' },
   { type: 'checkbox', label: 'Checkboxes', hint: 'Pick as many as they want. Can reveal follow-up questions' },
   { type: 'dropdown', label: 'Dropdown', hint: 'Pick one from a list. Can reveal follow-up questions' },
+  { type: 'profession', label: 'Profession', hint: 'Dropdown pre-filled with the same professions as the RSVP form' },
   { type: 'poll', label: 'Poll', hint: 'A single-choice vote. Can reveal follow-up questions' },
   { type: 'rating', label: 'Rating scale', hint: 'Score from 1 to 10' },
   { type: 'photo-upload', label: 'Photo upload', hint: 'The respondent attaches a photo' },
@@ -3839,6 +3840,17 @@ function getSpecialBlockMeta(type) {
 }
 
 function createSpecialFormField(type) {
+  // Profession is a preset: a regular dropdown carrying the RSVP form's profession list.
+  if (type === 'profession') {
+    const professions = (state.config && state.config.professions) || [];
+    return {
+      ...createSpecialFormField('dropdown'),
+      label: 'Profession',
+      required: true,
+      options: professions.length ? professions.slice() : ['Option 1', 'Option 2']
+    };
+  }
+
   const field = {
     fieldId: createSpecialFieldId(),
     type,
@@ -4220,11 +4232,11 @@ function renderSpecialFormBuilder({ showAccepting = false } = {}) {
             (block) => `
               <button
                 type="button"
-                class="special-add-button${isSpecialFormChoiceType(block.type) ? ' can-branch' : ''}"
+                class="special-add-button${isSpecialFormChoiceType(block.type) || block.type === 'profession' ? ' can-branch' : ''}"
                 data-add-special-block="${escapeAttribute(block.type)}"
                 title="${escapeAttribute(block.hint)}"
               >
-                ${escapeHtml(block.label)}${isSpecialFormChoiceType(block.type) ? '<span class="special-add-branch" aria-hidden="true">&#8623;</span>' : ''}
+                ${escapeHtml(block.label)}${isSpecialFormChoiceType(block.type) || block.type === 'profession' ? '<span class="special-add-branch" aria-hidden="true">&#8623;</span>' : ''}
               </button>
             `
           ).join('')}
