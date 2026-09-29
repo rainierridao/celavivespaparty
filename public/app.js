@@ -6319,6 +6319,14 @@ function renderMasterlistShareControl(eventData) {
           `
           : ''
       }
+      <label class="masterlist-share-toggle">
+        <input
+          type="checkbox"
+          id="masterlistAllowDelete"
+          ${share.allowDelete ? 'checked' : ''}
+        >
+        <span>Let whoever opens the link delete entries</span>
+      </label>
       <div class="masterlist-share-actions">
         ${
           isOn
@@ -6336,6 +6344,7 @@ function renderMasterlistShareControl(eventData) {
 
 function attachMasterlistShareHandlers(eventData) {
   const allowMarkPaidInput = document.getElementById('masterlistAllowMarkPaid');
+  const allowDeleteInput = document.getElementById('masterlistAllowDelete');
   const share = eventData.masterlistShare || {};
 
   const saveShareSettings = async ({ enabled, regenerate, button, loadingLabel, confirm }) => {
@@ -6356,7 +6365,8 @@ function attachMasterlistShareHandlers(eventData) {
           action: 'masterlist-share',
           enabled,
           regenerate: Boolean(regenerate),
-          allowMarkPaid: allowMarkPaidInput ? allowMarkPaidInput.checked : share.allowMarkPaid !== false
+          allowMarkPaid: allowMarkPaidInput ? allowMarkPaidInput.checked : share.allowMarkPaid !== false,
+          allowDelete: allowDeleteInput ? allowDeleteInput.checked : Boolean(share.allowDelete)
         }
       });
 
@@ -6407,8 +6417,8 @@ function attachMasterlistShareHandlers(eventData) {
     });
   });
 
-  if (allowMarkPaidInput) {
-    allowMarkPaidInput.addEventListener('change', () => {
+  [allowMarkPaidInput, allowDeleteInput].filter(Boolean).forEach((input) => {
+    input.addEventListener('change', () => {
       if (!share.enabled) {
         // Nothing is shared yet, so the choice is just carried into the next save.
         return;
@@ -6416,7 +6426,7 @@ function attachMasterlistShareHandlers(eventData) {
 
       saveShareSettings({ enabled: true });
     });
-  }
+  });
 }
 
 function getRsvpResponseSummary(row) {
@@ -6939,11 +6949,7 @@ function renderSharedMasterlistPage(masterlist, token) {
               <div>
                 <span class="section-kicker">Respondents</span>
                 <h2>${escapeHtml(masterlist.eventName || 'Masterlist')}</h2>
-                <p>${escapeHtml(
-                  masterlist.allowMarkPaid
-                    ? 'Anyone with this link can view the list and mark a payment as received.'
-                    : 'This is a view-only copy of the respondent list.'
-                )}</p>
+                <p>${escapeHtml(describeMasterlistPermissions(masterlist))}</p>
               </div>
             </div>
             ${
@@ -6984,7 +6990,7 @@ function renderMasterlistTable(masterlist, columns, rows) {
           <tr>
             <th>#</th>
             ${columns.map((column) => `<th>${escapeHtml(column)}</th>`).join('')}
-            ${masterlist.allowMarkPaid ? '<th>Payment</th>' : ''}
+            ${hasMasterlistActions(masterlist) ? '<th>Actions</th>' : ''}
           </tr>
         </thead>
         <tbody>
@@ -6994,7 +7000,7 @@ function renderMasterlistTable(masterlist, columns, rows) {
                 <tr data-masterlist-row data-search="${escapeAttribute(buildMasterlistSearchText(row, columns))}">
                   <td>${index + 1}</td>
                   ${columns.map((column) => `<td>${renderMasterlistCell(row, column)}</td>`).join('')}
-                  ${masterlist.allowMarkPaid ? `<td>${renderMasterlistPaymentAction(row)}</td>` : ''}
+                  ${hasMasterlistActions(masterlist) ? `<td><div class="masterlist-row-actions">${renderMasterlistRowActions(masterlist, row, getMasterlistHeadline(columns, row))}</div></td>` : ''}
                 </tr>
               `
             )
@@ -7037,7 +7043,7 @@ function renderMasterlistCards(masterlist, columns, rows) {
                     `
                   )
                   .join('')}
-                ${masterlist.allowMarkPaid ? `<div class="masterlist-entry-actions">${renderMasterlistPaymentAction(row)}</div>` : ''}
+                ${hasMasterlistActions(masterlist) ? `<div class="masterlist-entry-actions masterlist-row-actions">${renderMasterlistRowActions(masterlist, row, headline)}</div>` : ''}
               </div>
             </details>
           `;
@@ -7065,6 +7071,47 @@ function renderMasterlistCell(row, column) {
   }
 
   return escapeHtml(value);
+}
+
+function describeMasterlistPermissions(masterlist) {
+  if (masterlist.allowMarkPaid && masterlist.allowDelete) {
+    return 'Anyone with this link can view the list, mark a payment as received, and delete entries.';
+  }
+
+  if (masterlist.allowMarkPaid) {
+    return 'Anyone with this link can view the list and mark a payment as received.';
+  }
+
+  if (masterlist.allowDelete) {
+    return 'Anyone with this link can view the list and delete entries.';
+  }
+
+  return 'This is a view-only copy of the respondent list.';
+}
+
+function hasMasterlistActions(masterlist) {
+  return Boolean(masterlist.allowMarkPaid || masterlist.allowDelete);
+}
+
+function getMasterlistHeadline(columns, row) {
+  const headlineColumn = columns.find((column) => column !== 'Timestamp');
+  return headlineColumn ? String(row[headlineColumn] || '').trim() : '';
+}
+
+function renderMasterlistRowActions(masterlist, row, name) {
+  return `
+    ${masterlist.allowMarkPaid ? renderMasterlistPaymentAction(row) : ''}
+    ${masterlist.allowDelete && row.__rowNumber ? `
+      <button
+        type="button"
+        class="button-link button-link-danger masterlist-payment-button"
+        data-masterlist-delete
+        data-row-number="${escapeAttribute(row.__rowNumber)}"
+        data-row-timestamp="${escapeAttribute(row.__timestamp || '')}"
+        data-response-name="${escapeAttribute(name || 'this entry')}"
+      >Delete</button>
+    ` : ''}
+  `;
 }
 
 function renderMasterlistPaymentAction(row) {
@@ -7119,6 +7166,35 @@ function attachSharedMasterlistHandlers(masterlist, token) {
       }
     });
   }
+
+  document.querySelectorAll('[data-masterlist-delete]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const responseName = button.getAttribute('data-response-name') || 'this entry';
+      const confirmed = await showConfirmModal({
+        title: 'Delete this entry?',
+        message: `This permanently removes ${responseName} from the masterlist.`,
+        confirmLabel: 'Delete Entry',
+        tone: 'danger'
+      });
+
+      if (!confirmed) {
+        return;
+      }
+
+      try {
+        setButtonLoading(button, true, 'Deleting...');
+        const result = await fetchJson(
+          `/shared-masterlist/${encodeURIComponent(token)}/responses/${encodeURIComponent(button.getAttribute('data-row-number'))}`,
+          { method: 'DELETE', body: { timestamp: button.getAttribute('data-row-timestamp') || '' } }
+        );
+        await renderRoute();
+        setStatus(document.getElementById('responseActionStatus'), result.message, 'is-success');
+      } catch (error) {
+        setStatus(document.getElementById('responseActionStatus'), error.message, 'is-error');
+        setButtonLoading(button, false, 'Delete');
+      }
+    });
+  });
 
   if (!masterlist.allowMarkPaid) {
     return;

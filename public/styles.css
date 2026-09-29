@@ -8784,6 +8784,12 @@ textarea {
   display: none;
 }
 
+.masterlist-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
 .masterlist-payment-button {
   width: auto;
   min-height: 34px;

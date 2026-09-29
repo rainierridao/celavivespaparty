@@ -18,6 +18,7 @@ test('parses stored masterlist share settings', () => {
     enabled: false,
     token: '',
     allowMarkPaid: true,
+    allowDelete: false,
     createdAt: ''
   });
 
@@ -107,8 +108,24 @@ test('normalizes the masterlist share action', () => {
       allowMarkPaid: false,
       regenerate: 'true'
     }),
-    { action: 'masterlist-share', enabled: true, allowMarkPaid: false, regenerate: true }
+    { action: 'masterlist-share', enabled: true, allowMarkPaid: false, allowDelete: false, regenerate: true }
   );
 
   assert.throws(() => normalizeEventMutationPayload({ action: 'masterlist-shared' }), /valid event action/);
+});
+
+test('deleting from a shared masterlist is off unless the owner turns it on', () => {
+  assert.equal(parseMasterlistShare(JSON.stringify({ enabled: true, token: TOKEN })).allowDelete, false);
+  assert.equal(
+    parseMasterlistShare(JSON.stringify({ enabled: true, token: TOKEN, allowDelete: true })).allowDelete,
+    true
+  );
+  assert.equal(
+    normalizeEventMutationPayload({ action: 'masterlist-share', enabled: true, allowDelete: true }).allowDelete,
+    true
+  );
+  assert.equal(
+    normalizeEventMutationPayload({ action: 'masterlist-share', enabled: true }).allowDelete,
+    false
+  );
 });
