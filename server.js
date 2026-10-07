@@ -29,7 +29,7 @@ const server = http.createServer(async (req, res) => {
       const apiPath = req.url.startsWith('/.netlify/functions/api/')
         ? req.url.replace('/.netlify/functions/api', '/api')
         : req.url;
-      const body = req.method === 'GET' ? {} : await readJsonBody(req);
+      const body = req.method === 'GET' ? {} : await readJsonBody(req, getBodyLimit(apiPath));
       const apiResponse = await handleApiRequest({
         method: req.method,
         path: apiPath,
@@ -83,19 +83,35 @@ function serveStaticFile(req, res) {
   res.end(content);
 }
 
-function readJsonBody(req) {
+// Translator audio chunks are larger than form posts; Netlify caps requests at 6 MB.
+function getBodyLimit(apiPath) {
+  return apiPath.split('?')[0] === '/api/translator/chunk' ? 5_000_000 : 1_000_000;
+}
+
+function readJsonBody(req, limit = 1_000_000) {
   return new Promise((resolve, reject) => {
     let rawBody = '';
+    let tooLarge = false;
 
     req.on('data', (chunk) => {
+      if (tooLarge) {
+        return;
+      }
+
       rawBody += chunk;
 
-      if (rawBody.length > 1_000_000) {
-        reject(badRequest('Request body is too large.'));
+      if (rawBody.length > limit) {
+        tooLarge = true;
+        rawBody = '';
+        reject(createError(413, 'Request body is too large.'));
       }
     });
 
     req.on('end', () => {
+      if (tooLarge) {
+        return;
+      }
+
       try {
         resolve(rawBody ? JSON.parse(rawBody) : {});
       } catch (error) {

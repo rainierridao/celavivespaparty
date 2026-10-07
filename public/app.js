@@ -152,7 +152,8 @@ const state = {
   headerTitleResizeHandler: null,
   specialForm: null,
   specialPhotoUploads: {},
-  specialPhotoEventId: ''
+  specialPhotoEventId: '',
+  routeSeq: 0
 };
 
 document.addEventListener('click', handleGlobalClick);
@@ -194,6 +195,8 @@ async function refreshSession() {
 
 async function renderRoute() {
   const pathname = normalizePath(window.location.pathname);
+  // Lets a slow page load notice the user has already moved to another page.
+  const routeSeq = ++state.routeSeq;
 
   if (state.publicSlideshowTimer) {
     window.clearInterval(state.publicSlideshowTimer);
@@ -260,6 +263,11 @@ async function renderRoute() {
     try {
       const result = await fetchJson('/events');
       state.cachedEventCount = getActiveWorkspaceEvents(result.events).length;
+
+      if (routeSeq !== state.routeSeq) {
+        return;
+      }
+
       renderPage(renderDashboardPage(result.user, result.events));
       attachAdminShellHandlers();
       attachDashboardHandlers(result.events);
@@ -305,6 +313,29 @@ async function renderRoute() {
     renderPage(renderQrGeneratorPage());
     attachAdminShellHandlers();
     attachQrGeneratorHandlers();
+    return;
+  }
+
+  if (pathname === '/translator') {
+    if (!(await guardAuthenticated())) {
+      return;
+    }
+
+    await loadTranslatorConfig().catch(() => null);
+    renderPage(renderTranslatorPage());
+    attachAdminShellHandlers();
+    attachTranslatorHandlers();
+    return;
+  }
+
+  const translatorSessionMatch = pathname.match(/^\/translator\/([^/]+)$/);
+
+  if (translatorSessionMatch) {
+    if (!(await guardAuthenticated())) {
+      return;
+    }
+
+    await showTranslatorSessionPage(decodeURIComponent(translatorSessionMatch[1]));
     return;
   }
 
@@ -9034,6 +9065,19 @@ function renderAdminSidebar(activeView, user, eventCount) {
             </svg>
           </span>
           <span class="sidebar-link-label">QR Generator</span>
+        </a>
+        <a href="/translator" data-link class="sidebar-link${activeView === 'translator' ? ' is-active' : ''}${typeof translatorIsBusy === 'function' && translatorIsBusy() ? ' is-translating' : ''}">
+          <span class="sidebar-link-icon">
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M4 6H12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+              <path d="M8 4V6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+              <path d="M10.5 6C10.5 9.5 8 12.5 5 14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+              <path d="M6.5 8.5C7.5 10.5 9.5 12.5 12 13.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+              <path d="M12.5 20L16 11L19.5 20" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M13.8 17H18.2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+            </svg>
+          </span>
+          <span class="sidebar-link-label">Translator</span>
         </a>
         <a href="/events/archive" data-link class="sidebar-link${activeView === 'archive' ? ' is-active' : ''}">
           <span class="sidebar-link-icon">
