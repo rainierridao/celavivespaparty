@@ -2161,6 +2161,7 @@ function attachEventDetailHandlers(eventData) {
       const status = document.getElementById('rsvpSettingsStatus');
       const acceptingInput = rsvpSettingsForm.querySelector('#rsvpAccepting');
       const maxYesInput = rsvpSettingsForm.querySelector('#rsvpMaxYes');
+      const dressCodeInput = rsvpSettingsForm.querySelector('#rsvpDressCode');
 
       setStatus(status, '', '');
 
@@ -2171,7 +2172,8 @@ function attachEventDetailHandlers(eventData) {
           body: {
             action: isCelaviveRaffleEvent(eventData) ? 'celavive-entry-settings' : 'rsvp-settings',
             rsvpAccepting: Boolean(acceptingInput && acceptingInput.checked),
-            rsvpMaxYes: maxYesInput ? maxYesInput.value : ''
+            rsvpMaxYes: maxYesInput ? maxYesInput.value : '',
+            ...(dressCodeInput ? { dressCode: dressCodeInput.value } : {})
           }
         });
 
@@ -2526,15 +2528,49 @@ function attachRsvpHandlers(eventData) {
         }
       });
 
+      const fullName = form.fullName.value.trim();
+      const isAttending = !/^no\b/i.test(form.attendanceConfirmation.value);
+
       form.reset();
-  syncThreadsField();
-      setStatus(status, result.message, 'is-success');
+      syncThreadsField();
+
+      if (eventData.dressCode && isAttending) {
+        showRsvpDressCodeReminder(form, eventData, fullName);
+      } else {
+        setStatus(status, result.message, 'is-success');
+      }
     } catch (error) {
       setStatus(status, error.message, 'is-error');
     } finally {
       setButtonLoading(submitButton, false, 'Confirm RSVP');
     }
   });
+}
+
+function showRsvpDressCodeReminder(form, eventData, fullName) {
+  const firstName = fullName.split(/\s+/)[0] || '';
+  const card = document.createElement('div');
+  card.className = 'rsvp-success-card';
+  card.setAttribute('role', 'status');
+  card.innerHTML = `
+    <h2>You're all set${firstName ? `, ${escapeHtml(firstName)}` : ''}! 🎉</h2>
+    <p>Your RSVP is saved. See you at ${escapeHtml(eventData.eventLabel || 'the party')}.</p>
+    <div class="rsvp-dress-code">
+      <span class="rsvp-dress-code-kicker">👗 Dress Code Reminder</span>
+      <p>${escapeHtml(eventData.dressCode)}</p>
+    </div>
+    <button type="button" class="button-link button-link-secondary">Submit another RSVP</button>
+  `;
+
+  card.querySelector('button').addEventListener('click', () => {
+    card.remove();
+    form.hidden = false;
+    form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+
+  form.hidden = true;
+  form.insertAdjacentElement('afterend', card);
+  card.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function attachAttendanceHandlers(eventData) {
@@ -6035,6 +6071,17 @@ function renderRsvpSettingsModal(eventData) {
             <label for="rsvpMaxYes">${escapeHtml(maxLabel)}</label>
             <input id="rsvpMaxYes" name="rsvpMaxYes" type="number" min="1" step="1" inputmode="numeric" value="${escapeAttribute(maxYes)}" placeholder="${escapeAttribute(maxPlaceholder)}">
           </div>
+          ${
+            isCelaviveSpaPartyEvent(eventData)
+              ? `
+                <div class="field">
+                  <label for="rsvpDressCode">Dress Code / What to Wear</label>
+                  <textarea id="rsvpDressCode" name="dressCode" rows="3" maxlength="300" placeholder="Example: All white or pastel, comfy and spa-ready ✨">${escapeHtml(eventData.dressCode || '')}</textarea>
+                  <small class="field-help">Shown to guests right after they RSVP. Leave blank to skip.</small>
+                </div>
+              `
+              : ''
+          }
           <div id="rsvpSettingsStatus" class="status" aria-live="polite"></div>
           <div class="rsvp-settings-actions">
             <button type="button" class="button-link button-link-secondary" data-close-rsvp-settings>Cancel</button>

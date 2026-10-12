@@ -10175,3 +10175,49 @@ textarea {
 .translator-zoom-status[data-tone='success'] { color: #22714a; }
 .translator-zoom-status[data-tone='warn'] { color: #8a5a00; }
 .translator-zoom-status[data-tone='error'] { color: #b42318; }
+
+/* RSVP success card with dress code reminder (Celavive Spa Party) */
+.rsvp-success-card {
+  display: grid;
+  gap: 14px;
+  padding: 24px;
+  border-radius: var(--radius-lg);
+  background: var(--surface-strong);
+  box-shadow: var(--shadow);
+  color: var(--text);
+  text-align: center;
+}
+
+.rsvp-success-card h2 {
+  margin: 0;
+}
+
+.rsvp-success-card p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.rsvp-dress-code {
+  display: grid;
+  gap: 6px;
+  padding: 16px 18px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--accent);
+  background: var(--accent-soft);
+}
+
+.rsvp-dress-code-kicker {
+  font-weight: 700;
+  color: var(--accent-deep);
+  letter-spacing: 0.02em;
+}
+
+.rsvp-dress-code p {
+  color: var(--text);
+  white-space: pre-line;
+  font-size: 1.05rem;
+}
+
+.rsvp-success-card .button-link {
+  justify-self: center;
+}
